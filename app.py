@@ -16,7 +16,7 @@ import os
 import sys
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -38,6 +38,7 @@ app = FastAPI(
     title="BioCrypt Genomics Laboratory Workstation",
     description="Computational DNA Steganography & Biophysical Viability Suite",
     version="4.0.0",
+    redirect_slashes=False,
 )
 
 app.add_middleware(
@@ -50,14 +51,31 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def vercel_path_normalizer(request, call_next):
-    path = request.scope.get("path", "")
-    if path in ["/api/index.py", "/api/index", "/api", "/api/"]:
-        request.scope["path"] = "/"
-    elif path.startswith("/api/index.py/"):
-        request.scope["path"] = path[len("/api/index.py"):]
-    elif path.startswith("/api/index/"):
-        request.scope["path"] = path[len("/api/index"):]
+async def vercel_path_normalizer(request: Request, call_next):
+    orig_path = (
+        request.headers.get("x-matched-path")
+        or request.headers.get("x-forwarded-uri")
+        or request.headers.get("x-invoke-path")
+        or request.headers.get("x-original-url")
+        or request.headers.get("x-rewrite-url")
+    )
+    if orig_path:
+        clean_path = orig_path.split("?")[0]
+        if clean_path in ["/api/index.py", "/api/index", "/api", "/api/"]:
+            clean_path = "/"
+        elif clean_path.startswith("/api/index.py/"):
+            clean_path = clean_path[len("/api/index.py"):]
+        elif clean_path.startswith("/api/index/"):
+            clean_path = clean_path[len("/api/index"):]
+        request.scope["path"] = clean_path
+    else:
+        path = request.scope.get("path", "")
+        if path in ["/api/index.py", "/api/index", "/api", "/api/"]:
+            request.scope["path"] = "/"
+        elif path.startswith("/api/index.py/"):
+            request.scope["path"] = path[len("/api/index.py"):]
+        elif path.startswith("/api/index/"):
+            request.scope["path"] = path[len("/api/index"):]
     return await call_next(request)
 
 
@@ -256,6 +274,16 @@ async def api_simulate_pcr(payload: PcrRequest):
             status_code=404,
             detail="PCR amplification yielded zero product. Primer hybridization failed.",
         )
+
+
+@app.get("/api/test-headers")
+@app.post("/api/test-headers")
+async def test_headers(request: Request):
+    return {
+        "headers": dict(request.headers),
+        "url_path": request.url.path,
+        "scope_path": request.scope.get("path")
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
