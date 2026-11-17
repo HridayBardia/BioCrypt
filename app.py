@@ -50,35 +50,6 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def vercel_path_normalizer(request: Request, call_next):
-    orig_path = (
-        request.headers.get("x-matched-path")
-        or request.headers.get("x-forwarded-uri")
-        or request.headers.get("x-invoke-path")
-        or request.headers.get("x-original-url")
-        or request.headers.get("x-rewrite-url")
-    )
-    if orig_path:
-        clean_path = orig_path.split("?")[0]
-        if clean_path in ["/api/index.py", "/api/index", "/api", "/api/"]:
-            clean_path = "/"
-        elif clean_path.startswith("/api/index.py/"):
-            clean_path = clean_path[len("/api/index.py"):]
-        elif clean_path.startswith("/api/index/"):
-            clean_path = clean_path[len("/api/index"):]
-        request.scope["path"] = clean_path
-    else:
-        path = request.scope.get("path", "")
-        if path in ["/api/index.py", "/api/index", "/api", "/api/"]:
-            request.scope["path"] = "/"
-        elif path.startswith("/api/index.py/"):
-            request.scope["path"] = path[len("/api/index.py"):]
-        elif path.startswith("/api/index/"):
-            request.scope["path"] = path[len("/api/index"):]
-    return await call_next(request)
-
-
 class ConcealRequest(BaseModel):
     secret_text: str
     password: str
