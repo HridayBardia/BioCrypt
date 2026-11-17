@@ -3,8 +3,9 @@
 BioCrypt-DNA Main Entry Point
 """
 
-from cli import cli
+from app import app
 
 if __name__ == "__main__":
+    from cli import cli
     cli()
 

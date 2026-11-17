@@ -49,6 +49,18 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def vercel_path_normalizer(request, call_next):
+    path = request.scope.get("path", "")
+    if path in ["/api/index.py", "/api/index", "/api", "/api/"]:
+        request.scope["path"] = "/"
+    elif path.startswith("/api/index.py/"):
+        request.scope["path"] = path[len("/api/index.py"):]
+    elif path.startswith("/api/index/"):
+        request.scope["path"] = path[len("/api/index"):]
+    return await call_next(request)
+
+
 class ConcealRequest(BaseModel):
     secret_text: str
     password: str
@@ -72,6 +84,7 @@ class PcrRequest(BaseModel):
 
 
 @app.post("/api/conceal")
+@app.post("/conceal")
 async def api_conceal(payload: ConcealRequest):
     if not payload.secret_text.strip():
         raise HTTPException(status_code=400, detail="Secret payload is required.")
@@ -125,6 +138,7 @@ async def api_conceal(payload: ConcealRequest):
 
 
 @app.post("/api/extract")
+@app.post("/extract")
 async def api_extract(payload: ExtractRequest):
     if not payload.stego_fasta.strip():
         raise HTTPException(status_code=400, detail="FASTA carrier sequence is required.")
@@ -168,6 +182,7 @@ async def api_extract(payload: ExtractRequest):
 
 
 @app.post("/api/audit")
+@app.post("/audit")
 async def api_audit(payload: AuditRequest):
     if not payload.sequence.strip():
         raise HTTPException(status_code=400, detail="Target nucleotide sequence required.")
@@ -195,6 +210,7 @@ async def api_audit(payload: AuditRequest):
 
 
 @app.post("/api/simulate-pcr")
+@app.post("/simulate-pcr")
 async def api_simulate_pcr(payload: PcrRequest):
     if not payload.sequence.strip():
         raise HTTPException(status_code=400, detail="Genomic sequence required.")
@@ -243,6 +259,12 @@ async def api_simulate_pcr(payload: PcrRequest):
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/api", response_class=HTMLResponse)
+@app.get("/api/", response_class=HTMLResponse)
+@app.get("/api/index", response_class=HTMLResponse)
+@app.get("/api/index.py", response_class=HTMLResponse)
+@app.get("/index", response_class=HTMLResponse)
+@app.get("/index.py", response_class=HTMLResponse)
 async def serve_index():
     return HTMLResponse(content=INDEX_HTML)
 
