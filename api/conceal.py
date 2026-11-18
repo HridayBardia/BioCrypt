@@ -18,8 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/api/conceal")
-@app.post("/conceal")
-@app.post("/")
+@app.api_route("/{full_path:path}", methods=["POST"])
+@app.api_route("/", methods=["POST"])
 async def handler(payload: ConcealRequest):
     return await api_conceal(payload)

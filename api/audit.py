@@ -18,8 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/api/audit")
-@app.post("/audit")
-@app.post("/")
+@app.api_route("/{full_path:path}", methods=["POST"])
+@app.api_route("/", methods=["POST"])
 async def handler(payload: AuditRequest):
     return await api_audit(payload)

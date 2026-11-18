@@ -18,8 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/api/extract")
-@app.post("/extract")
-@app.post("/")
+@app.api_route("/{full_path:path}", methods=["POST"])
+@app.api_route("/", methods=["POST"])
 async def handler(payload: ExtractRequest):
     return await api_extract(payload)

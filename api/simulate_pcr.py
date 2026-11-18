@@ -18,8 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/api/simulate-pcr")
-@app.post("/simulate-pcr")
-@app.post("/")
+@app.api_route("/{full_path:path}", methods=["POST"])
+@app.api_route("/", methods=["POST"])
 async def handler(payload: PcrRequest):
     return await api_simulate_pcr(payload)
