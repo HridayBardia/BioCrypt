@@ -1,23 +1,11 @@
 {
   "rewrites": [
     {
-      "source": "/api/conceal",
-      "destination": "/api/conceal.py"
-    },
-    {
-      "source": "/api/extract",
-      "destination": "/api/extract.py"
-    },
-    {
-      "source": "/api/audit",
-      "destination": "/api/audit.py"
-    },
-    {
       "source": "/api/simulate-pcr",
-      "destination": "/api/simulate_pcr.py"
+      "destination": "/api/simulate_pcr"
     },
     {
-      "source": "/(.*)",
+      "source": "/",
       "destination": "/api/index.py"
     }
   ]
