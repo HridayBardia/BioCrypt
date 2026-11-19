@@ -61,8 +61,15 @@ class ExtractRequest(BaseModel):
     password: str
 
 
+
 class AuditRequest(BaseModel):
     sequence: str
+
+
+class MolBioRequest(BaseModel):
+    sequence: str
+    reading_frame: Optional[int] = 1
+
 
 
 @app.post("/api/conceal")
@@ -190,6 +197,179 @@ async def api_audit(payload: AuditRequest):
         "sliding_gc_points": sliding_gc[:80],
     }
 
+@app.post("/api/molbio")
+@app.post("/molbio")
+async def api_molbio(payload: MolBioRequest):
+    raw_seq = payload.sequence.strip()
+    if not raw_seq:
+        raise HTTPException(status_code=400, detail="DNA sequence is required.")
+
+    if ">" in raw_seq:
+        try:
+            records = CarrierEngine.read_fasta(raw_seq)
+            raw_seq = records[0].sequence
+        except Exception:
+            pass
+
+    clean_dna = "".join(ch for ch in raw_seq if ch.isalpha() and ch.upper() in "ACGTUN").upper()
+    clean_dna = clean_dna.replace("U", "T")
+    if not clean_dna:
+        raise HTTPException(status_code=400, detail="No valid nucleotide bases (A, C, G, T) identified.")
+
+    frame = payload.reading_frame if payload.reading_frame in (1, 2, 3) else 1
+    offset = frame - 1
+    frame_dna = clean_dna[offset:]
+
+    codon_table = {
+        'TTT': ('F', 'Phe', 'Phenylalanine', 'hydrophobic', 165.19),
+        'TTC': ('F', 'Phe', 'Phenylalanine', 'hydrophobic', 165.19),
+        'TTA': ('L', 'Leu', 'Leucine', 'hydrophobic', 131.17),
+        'TTG': ('L', 'Leu', 'Leucine', 'hydrophobic', 131.17),
+        'CTT': ('L', 'Leu', 'Leucine', 'hydrophobic', 131.17),
+        'CTC': ('L', 'Leu', 'Leucine', 'hydrophobic', 131.17),
+        'CTA': ('L', 'Leu', 'Leucine', 'hydrophobic', 131.17),
+        'CTG': ('L', 'Leu', 'Leucine', 'hydrophobic', 131.17),
+        'ATT': ('I', 'Ile', 'Isoleucine', 'hydrophobic', 131.17),
+        'ATC': ('I', 'Ile', 'Isoleucine', 'hydrophobic', 131.17),
+        'ATA': ('I', 'Ile', 'Isoleucine', 'hydrophobic', 131.17),
+        'ATG': ('M', 'Met', 'Methionine', 'hydrophobic', 149.21),
+        'GTT': ('V', 'Val', 'Valine', 'hydrophobic', 117.15),
+        'GTC': ('V', 'Val', 'Valine', 'hydrophobic', 117.15),
+        'GTA': ('V', 'Val', 'Valine', 'hydrophobic', 117.15),
+        'GTG': ('V', 'Val', 'Valine', 'hydrophobic', 117.15),
+        'TCT': ('S', 'Ser', 'Serine', 'polar', 105.09),
+        'TCC': ('S', 'Ser', 'Serine', 'polar', 105.09),
+        'TCA': ('S', 'Ser', 'Serine', 'polar', 105.09),
+        'TCG': ('S', 'Ser', 'Serine', 'polar', 105.09),
+        'CCT': ('P', 'Pro', 'Proline', 'hydrophobic', 115.13),
+        'CCC': ('P', 'Pro', 'Proline', 'hydrophobic', 115.13),
+        'CCA': ('P', 'Pro', 'Proline', 'hydrophobic', 115.13),
+        'CCG': ('P', 'Pro', 'Proline', 'hydrophobic', 115.13),
+        'ACT': ('T', 'Thr', 'Threonine', 'polar', 119.12),
+        'ACC': ('T', 'Thr', 'Threonine', 'polar', 119.12),
+        'ACA': ('T', 'Thr', 'Threonine', 'polar', 119.12),
+        'ACG': ('T', 'Thr', 'Threonine', 'polar', 119.12),
+        'GCT': ('A', 'Ala', 'Alanine', 'hydrophobic', 89.09),
+        'GCC': ('A', 'Ala', 'Alanine', 'hydrophobic', 89.09),
+        'GCA': ('A', 'Ala', 'Alanine', 'hydrophobic', 89.09),
+        'GCG': ('A', 'Ala', 'Alanine', 'hydrophobic', 89.09),
+        'TAT': ('Y', 'Tyr', 'Tyrosine', 'polar', 181.19),
+        'TAC': ('Y', 'Tyr', 'Tyrosine', 'polar', 181.19),
+        'TAA': ('*', 'Ter', 'Stop (Ochre)', 'stop', 0.0),
+        'TAG': ('*', 'Ter', 'Stop (Amber)', 'stop', 0.0),
+        'CAT': ('H', 'His', 'Histidine', 'basic', 155.16),
+        'CAC': ('H', 'His', 'Histidine', 'basic', 155.16),
+        'CAA': ('Q', 'Gln', 'Glutamine', 'polar', 146.15),
+        'CAG': ('Q', 'Gln', 'Glutamine', 'polar', 146.15),
+        'AAT': ('N', 'Asn', 'Asparagine', 'polar', 132.12),
+        'AAC': ('N', 'Asn', 'Asparagine', 'polar', 132.12),
+        'AAA': ('K', 'Lys', 'Lysine', 'basic', 146.19),
+        'AAG': ('K', 'Lys', 'Lysine', 'basic', 146.19),
+        'GAT': ('D', 'Asp', 'Aspartic Acid', 'acidic', 133.10),
+        'GAC': ('D', 'Asp', 'Aspartic Acid', 'acidic', 133.10),
+        'GAA': ('E', 'Glu', 'Glutamic Acid', 'acidic', 147.13),
+        'GAG': ('E', 'Glu', 'Glutamic Acid', 'acidic', 147.13),
+        'TGT': ('C', 'Cys', 'Cysteine', 'polar', 121.16),
+        'TGC': ('C', 'Cys', 'Cysteine', 'polar', 121.16),
+        'TGA': ('*', 'Ter', 'Stop (Opal)', 'stop', 0.0),
+        'TGG': ('W', 'Trp', 'Tryptophan', 'hydrophobic', 204.23),
+        'CGT': ('R', 'Arg', 'Arginine', 'basic', 174.20),
+        'CGC': ('R', 'Arg', 'Arginine', 'basic', 174.20),
+        'CGA': ('R', 'Arg', 'Arginine', 'basic', 174.20),
+        'CGG': ('R', 'Arg', 'Arginine', 'basic', 174.20),
+        'AGT': ('S', 'Ser', 'Serine', 'polar', 105.09),
+        'AGC': ('S', 'Ser', 'Serine', 'polar', 105.09),
+        'AGA': ('R', 'Arg', 'Arginine', 'basic', 174.20),
+        'AGG': ('R', 'Arg', 'Arginine', 'basic', 174.20),
+        'GGT': ('G', 'Gly', 'Glycine', 'special', 75.07),
+        'GGC': ('G', 'Gly', 'Glycine', 'special', 75.07),
+        'GGA': ('G', 'Gly', 'Glycine', 'special', 75.07),
+        'GGG': ('G', 'Gly', 'Glycine', 'special', 75.07),
+    }
+
+    codons = []
+    peptide_residues = []
+    for i in range(0, len(frame_dna) - 2, 3):
+        triplet = frame_dna[i:i+3]
+        info = codon_table.get(triplet, ('?', 'Unk', 'Unknown', 'unknown', 110.0))
+        codons.append({
+            "codon_dna": triplet,
+            "codon_rna": triplet.replace("T", "U"),
+            "aa": info[0],
+            "code3": info[1],
+            "name": info[2],
+            "category": info[3],
+            "mw": info[4]
+        })
+        peptide_residues.append(info[0])
+
+    peptide_str = "".join(peptide_residues)
+
+    total_mw = 0.0
+    for c in codons:
+        if c["aa"] != "*":
+            total_mw += (c["mw"] - 18.015) if c["mw"] > 18.015 else c["mw"]
+    if total_mw > 0:
+        total_mw += 18.015
+
+    enzymes = [
+        {"name": "EcoRI", "seq": "GAATTC", "cut_offset": 1, "type": "5' Sticky (AATT)"},
+        {"name": "BamHI", "seq": "GGATCC", "cut_offset": 1, "type": "5' Sticky (GATC)"},
+        {"name": "HindIII", "seq": "AAGCTT", "cut_offset": 1, "type": "5' Sticky (AGCT)"},
+        {"name": "PstI", "seq": "CTGCAG", "cut_offset": 5, "type": "3' Sticky (TGCA)"},
+        {"name": "NotI", "seq": "GCGGCCGC", "cut_offset": 2, "type": "5' Sticky (GGCC)"},
+        {"name": "XhoI", "seq": "CTCGAG", "cut_offset": 1, "type": "5' Sticky (TCGA)"},
+        {"name": "EcoRV", "seq": "GATATC", "cut_offset": 3, "type": "Blunt"},
+        {"name": "SalI", "seq": "GTCGAC", "cut_offset": 1, "type": "5' Sticky (TCGA)"},
+    ]
+
+    digestion_results = []
+    for enz in enzymes:
+        motif = enz["seq"]
+        pos = 0
+        cut_sites = []
+        while True:
+            idx = clean_dna.find(motif, pos)
+            if idx == -1:
+                break
+            cut_sites.append(idx + enz["cut_offset"])
+            pos = idx + 1
+        
+        fragments = []
+        if cut_sites:
+            prev = 0
+            for cs in cut_sites:
+                fragments.append(cs - prev)
+                prev = cs
+            fragments.append(len(clean_dna) - prev)
+        else:
+            fragments = [len(clean_dna)]
+
+        digestion_results.append({
+            "enzyme": enz["name"],
+            "recognition_sequence": enz["seq"],
+            "overhang_type": enz["type"],
+            "cuts_count": len(cut_sites),
+            "cut_positions": cut_sites,
+            "fragment_lengths": fragments,
+            "is_unique_cutter": len(cut_sites) == 1,
+            "is_clean_for_cloning": len(cut_sites) == 0,
+        })
+
+    return {
+        "success": True,
+        "dna_length": len(clean_dna),
+        "reading_frame": frame,
+        "mrna_sequence": clean_dna.replace("T", "U"),
+        "peptide_sequence": peptide_str,
+        "residue_count": len(peptide_residues),
+        "molecular_weight_da": round(total_mw, 2),
+        "molecular_weight_kda": round(total_mw / 1000.0, 3),
+        "codons": codons,
+        "restriction_digestion": digestion_results,
+    }
+
+
 
 @app.get("/api/test-headers")
 @app.post("/api/test-headers")
@@ -212,7 +392,7 @@ async def serve_index():
     return HTMLResponse(content=INDEX_HTML)
 
 
-INDEX_HTML = """<!DOCTYPE html>
+INDEX_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -301,15 +481,18 @@ INDEX_HTML = """<!DOCTYPE html>
 
     <!-- Lab Protocol Navigation Tabs -->
     <div class="border-b border-[#1f293d] bg-[#0c111a]">
-        <div class="max-w-[1440px] mx-auto px-5 flex space-x-1 py-1 font-mono text-xs">
-            <button onclick="switchTab('protocol-embed')" id="btn-tab-embed" class="px-4 py-2 rounded font-medium text-white bg-[#192233] border border-[#2a3752] transition flex items-center gap-2">
+        <div class="max-w-[1440px] mx-auto px-5 flex space-x-1 py-1 font-mono text-xs overflow-x-auto">
+            <button onclick="switchTab('protocol-embed')" id="btn-tab-embed" class="px-4 py-2 rounded font-medium text-white bg-[#192233] border border-[#2a3752] transition flex items-center gap-2 whitespace-nowrap">
                 <span class="text-sky-400">01</span> Hide Secret (Encode)
             </button>
-            <button onclick="switchTab('protocol-extract')" id="btn-tab-extract" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2">
+            <button onclick="switchTab('protocol-extract')" id="btn-tab-extract" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2 whitespace-nowrap">
                 <span class="text-slate-500">02</span> Recover Secret (Decode)
             </button>
-            <button onclick="switchTab('protocol-audit')" id="btn-tab-audit" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2">
-                <span class="text-slate-500">03</span> DNA Health Check
+            <button onclick="switchTab('protocol-molbio')" id="btn-tab-molbio" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2 whitespace-nowrap">
+                <span class="text-emerald-400">03</span> Molecular Biology Lab
+            </button>
+            <button onclick="switchTab('protocol-audit')" id="btn-tab-audit" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2 whitespace-nowrap">
+                <span class="text-slate-500">04</span> DNA Health Check
             </button>
         </div>
     </div>
@@ -458,7 +641,11 @@ INDEX_HTML = """<!DOCTYPE html>
                                 <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">DNA DOUBLE HELIX VIEWER (TOP &amp; BOTTOM STRANDS)</span>
                                 <span id="ds-strand-len-badge" class="font-mono text-[10px] text-slate-500"></span>
                             </div>
-                            <div class="flex items-center space-x-2 text-xs">
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                <button onclick="transferToMolBioLab()" class="px-2.5 py-1 rounded bg-emerald-800 hover:bg-emerald-700 border border-emerald-600/60 text-emerald-200 font-mono text-[11px] font-semibold flex items-center gap-1.5 shadow">
+                                    <span>🧬 Analyze in Bio Lab</span>
+                                    <span>&rarr;</span>
+                                </button>
                                 <button onclick="saveCurrentCassetteToVault()" class="px-2.5 py-1 rounded bg-[#1b2233] hover:bg-[#232c42] border border-[#2d374d] text-slate-200 font-mono text-[11px]">
                                     Save to Library
                                 </button>
@@ -586,7 +773,233 @@ INDEX_HTML = """<!DOCTYPE html>
             </div>
         </section>
 
-        <!-- ======================= PROTOCOL 03: BIOPHYSICAL AUDIT ======================= -->
+        <!-- ======================= PROTOCOL 03: MOLECULAR BIOLOGY WORKBENCH ======================= -->
+        <section id="panel-protocol-molbio" class="hidden space-y-5">
+
+            <!-- Simple Explanation Banner -->
+            <div class="bg-[#101726] border border-[#23334d] rounded-lg p-3.5 flex items-start space-x-3 text-xs">
+                <div class="text-emerald-400 font-bold text-sm mt-0.5">&#9432;</div>
+                <div>
+                    <span class="font-semibold text-slate-200">Molecular Biology Workbench &bull; Central Dogma &amp; Circular Plasmid Vector:</span>
+                    <p class="text-slate-400 mt-0.5 leading-relaxed">
+                        Connect synthetic computation to living molecular biology:
+                        <strong>1. Central Dogma:</strong> Transcribe DNA to mRNA and translate codons into an amino acid polypeptide chain.
+                        <strong>2. Proteomics:</strong> View peptide molecular weight (kDa), isoelectric point (pI), and charge.
+                        <strong>3. Restriction Enzymes:</strong> Check cleavage cut sites for EcoRI, BamHI, HindIII, PstI, NotI, XhoI, EcoRV, SalI.
+                        <strong>4. Circular Plasmid Cloning Vector:</strong> Inspect the circular map of <em>pBioCrypt-4.8k</em> carrying your inserted payload!
+                    </p>
+                </div>
+            </div>
+
+            <!-- Sequence Input & Preset Controls -->
+            <div class="bg-[#131926] border border-[#1f293d] rounded p-4 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#1f293d]">
+                    <div>
+                        <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">3. TARGET NUCLEOTIDE SEQUENCE</span>
+                        <p class="text-[11px] text-slate-500 font-mono">Input synthetic stego-cassette or real genomic coding sequence</p>
+                    </div>
+                    <!-- Presets -->
+                    <div class="flex items-center space-x-2 text-xs font-mono">
+                        <span class="text-slate-500 text-[10px]">PRESETS:</span>
+                        <button onclick="loadMolBioPreset('stego')" class="px-2 py-0.5 rounded bg-[#1b2233] hover:bg-[#28354f] border border-[#2d3a52] text-sky-300 text-[11px]">BioCrypt Stego DNA</button>
+                        <button onclick="loadMolBioPreset('insulin')" class="px-2 py-0.5 rounded bg-[#1b2233] hover:bg-[#28354f] border border-[#2d3a52] text-emerald-300 text-[11px]">Human Insulin (INS)</button>
+                        <button onclick="loadMolBioPreset('gfp')" class="px-2 py-0.5 rounded bg-[#1b2233] hover:bg-[#28354f] border border-[#2d3a52] text-amber-300 text-[11px]">Jellyfish GFP</button>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <textarea id="molbio-input-seq" rows="4" oninput="updateMolBioCounters()" class="w-full bg-[#090d15] border border-[#1f293d] rounded p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500/80 mono lab-scroll" placeholder="Paste DNA sequence (A, C, G, T) or load a preset above..."></textarea>
+                    
+                    <div class="flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+                        <div class="flex items-center space-x-4 text-slate-400">
+                            <span>Length: <strong id="molbio-counter-len" class="text-slate-200">0</strong> bp</span>
+                            <span>Codons: <strong id="molbio-counter-codons" class="text-slate-200">0</strong></span>
+                            <span>GC Content: <strong id="molbio-counter-gc" class="text-slate-200">--%</strong></span>
+                        </div>
+
+                        <!-- Reading Frame Toggle -->
+                        <div class="flex items-center space-x-2">
+                            <span class="text-slate-400 text-[11px]">Reading Frame:</span>
+                            <div class="inline-flex rounded border border-[#23334d] p-0.5 bg-[#090d15]">
+                                <button onclick="setMolBioFrame(1)" id="btn-frame-1" class="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-700 text-white transition">Frame +1</button>
+                                <button onclick="setMolBioFrame(2)" id="btn-frame-2" class="px-2 py-0.5 rounded text-[11px] text-slate-400 hover:text-white transition">Frame +2</button>
+                                <button onclick="setMolBioFrame(3)" id="btn-frame-3" class="px-2 py-0.5 rounded text-[11px] text-slate-400 hover:text-white transition">Frame +3</button>
+                            </div>
+                            <button onclick="runMolBioAnalysis()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-semibold rounded shadow transition flex items-center gap-1.5">
+                                <span>ANALYZE BIOLOGY</span>
+                                <span>&rarr;</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Central Dogma Visual Flow: DNA -> mRNA -> Protein -->
+            <div id="molbio-results-shelf" class="space-y-5">
+                
+                <!-- Stage 1: Central Dogma Flow -->
+                <div class="bg-[#131926] border border-[#1f293d] rounded p-4 space-y-4">
+                    <div class="flex items-center justify-between pb-2 border-b border-[#1f293d]">
+                        <div>
+                            <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">1. CENTRAL DOGMA TRANSLATION CASCADE</span>
+                            <p class="text-[11px] text-slate-500 font-mono">DNA Coding Strand &rarr; Template Strand &rarr; mRNA Transcript &rarr; Polypeptide</p>
+                        </div>
+                        <span class="text-[11px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30">Active Frame: +<span id="molbio-active-frame-label">1</span></span>
+                    </div>
+
+                    <!-- Synchronized Triplet Viewer -->
+                    <div class="w-full bg-[#090d15] border border-[#1f293d] rounded p-3 text-xs font-mono lab-scroll max-h-60 overflow-y-auto whitespace-pre leading-relaxed select-all" id="molbio-triplet-viewer">
+<span class="text-slate-600">// Click "ANALYZE BIOLOGY" or load a preset above to view the Central Dogma cascade.</span>
+                    </div>
+
+                    <!-- Polypeptide Chain Sequence (Single Letter Code & Amino Acid Pills) -->
+                    <div class="space-y-2 pt-2 border-t border-[#1f293d]">
+                        <div class="flex items-center justify-between text-xs font-mono">
+                            <span class="text-slate-300 font-semibold uppercase tracking-wider">Translated Peptide Primary Sequence</span>
+                            <span id="molbio-peptide-len-label" class="text-slate-400 text-[11px]"></span>
+                        </div>
+                        
+                        <!-- Amino Acid Chemical Legend -->
+                        <div class="flex flex-wrap items-center gap-3 text-[10px] font-mono pb-1">
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Hydrophobic / Nonpolar</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span> Polar Uncharged</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span> Basic (+)</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Acidic (-)</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-700 inline-block"></span> Stop Codon (*)</span>
+                        </div>
+
+                        <div id="molbio-peptide-ribbon" class="flex flex-wrap gap-1 p-2 bg-[#090d15] border border-[#1f293d] rounded max-h-40 overflow-y-auto lab-scroll text-xs font-mono">
+                            <span class="text-slate-600 text-[11px]">Residues will render as interactive biochemically classified badges here.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stage 2: Proteomic & Biochemical Properties Matrix -->
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
+                    <div class="bg-[#131926] border border-[#1f293d] rounded p-3">
+                        <span class="text-slate-500 text-[10px]">TOTAL RESIDUES</span>
+                        <div id="molbio-stat-residues" class="text-base font-semibold text-slate-100 mt-0.5">-- aa</div>
+                        <span class="text-[10px] text-slate-400">Peptide Length</span>
+                    </div>
+                    <div class="bg-[#131926] border border-[#1f293d] rounded p-3">
+                        <span class="text-slate-500 text-[10px]">MOLECULAR MASS</span>
+                        <div id="molbio-stat-mass" class="text-base font-semibold text-slate-100 mt-0.5">-- kDa</div>
+                        <span id="molbio-stat-mass-da" class="text-[10px] text-emerald-400">-- Da</span>
+                    </div>
+                    <div class="bg-[#131926] border border-[#1f293d] rounded p-3">
+                        <span class="text-slate-500 text-[10px]">ISOELECTRIC POINT</span>
+                        <div id="molbio-stat-pi" class="text-base font-semibold text-slate-100 mt-0.5">pI --</div>
+                        <span class="text-[10px] text-slate-400">Zero Net Charge pH</span>
+                    </div>
+                    <div class="bg-[#131926] border border-[#1f293d] rounded p-3">
+                        <span class="text-slate-500 text-[10px]">NET CHARGE (pH 7.4)</span>
+                        <div id="molbio-stat-charge" class="text-base font-semibold text-slate-100 mt-0.5">--</div>
+                        <span class="text-[10px] text-slate-400">Physiological state</span>
+                    </div>
+                    <div class="bg-[#131926] border border-[#1f293d] rounded p-3">
+                        <span class="text-slate-500 text-[10px]">HYDROPATHY (GRAVY)</span>
+                        <div id="molbio-stat-gravy" class="text-base font-semibold text-slate-100 mt-0.5">--</div>
+                        <span id="molbio-stat-hydro-label" class="text-[10px] text-slate-400">Hydropathy Scale</span>
+                    </div>
+                </div>
+
+                <!-- Stage 3 & 4: Two-Column Grid for Plasmid Vector & Restriction Digestion -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+                    <!-- Left: Circular Plasmid Vector Cloning Map -->
+                    <div class="lg:col-span-7 bg-[#131926] border border-[#1f293d] rounded p-4 space-y-4">
+                        <div class="flex items-center justify-between pb-2 border-b border-[#1f293d]">
+                            <div>
+                                <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">CIRCULAR PLASMID VECTOR (pBioCrypt-4.8k)</span>
+                                <p class="text-[11px] text-slate-500 font-mono">Bacterial Expression Vector with MCS Payload Insertion</p>
+                            </div>
+                            <span class="text-[10px] font-mono text-sky-400 bg-sky-950/40 px-2 py-0.5 rounded border border-sky-500/30">Vector Size: 4,820 bp</span>
+                        </div>
+
+                        <!-- SVG Circular Plasmid -->
+                        <div class="flex flex-col md:flex-row items-center gap-4">
+                            <div class="w-full md:w-64 h-64 flex-shrink-0 flex items-center justify-center relative">
+                                <svg id="svg-plasmid-map" viewBox="0 0 400 400" class="w-full h-full drop-shadow-lg cursor-pointer">
+                                    <!-- Backbone -->
+                                    <circle cx="200" cy="200" r="130" fill="none" stroke="#1f293d" stroke-width="12" />
+                                    <!-- Dynamic arcs injected by JS -->
+                                    <g id="svg-plasmid-features"></g>
+                                    <!-- Dynamic restriction markers injected by JS -->
+                                    <g id="svg-plasmid-enzymes"></g>
+                                    <!-- Center info circle -->
+                                    <circle cx="200" cy="200" r="85" fill="#090d15" stroke="#1f293d" stroke-width="1.5" />
+                                    <text x="200" y="190" text-anchor="middle" fill="#f8fafc" font-size="13" font-family="monospace" font-weight="bold">pBioCrypt-4.8k</text>
+                                    <text x="200" y="208" text-anchor="middle" fill="#38bdf8" font-size="10" font-family="monospace" id="svg-plasmid-center-bp">4,820 bp</text>
+                                    <text x="200" y="224" text-anchor="middle" fill="#64748b" font-size="9" font-family="monospace">Cloning Vector</text>
+                                </svg>
+                            </div>
+
+                            <!-- Plasmid Feature Inspector Card -->
+                            <div class="flex-1 bg-[#090d15] border border-[#1f293d] rounded p-3 space-y-2 text-xs font-mono w-full">
+                                <div class="text-[10px] text-slate-500 uppercase tracking-wider">Feature Inspector (Click map element)</div>
+                                <div id="plasmid-feat-name" class="text-sm font-semibold text-sky-400">BioCrypt Expression Cassette (MCS)</div>
+                                <div class="text-[11px] text-slate-300">
+                                    <span>Locus Span: </span><strong id="plasmid-feat-span" class="text-emerald-400">1 &rarr; 450 bp</strong>
+                                </div>
+                                <div class="text-[11px] text-slate-300">
+                                    <span>Category: </span><span id="plasmid-feat-cat" class="text-slate-400">Multiple Cloning Site &amp; Insert</span>
+                                </div>
+                                <p id="plasmid-feat-desc" class="text-[11px] text-slate-400 leading-relaxed pt-1 border-t border-[#1f293d]">
+                                    Engineered insertion locus holding your synthetic steganographic DNA payload, framed by high-efficiency restriction endonucleases for seamless bacterial cloning.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Plasmid Legend -->
+                        <div class="flex flex-wrap gap-2 text-[10px] font-mono pt-2 border-t border-[#1f293d]">
+                            <span class="px-2 py-0.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">■ BioCrypt MCS (1-450)</span>
+                            <span class="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/40 text-purple-300">■ T7 Promoter (460-540)</span>
+                            <span class="px-2 py-0.5 rounded bg-blue-950/60 border border-blue-500/40 text-blue-300">■ lacZ Reporter (630-1220)</span>
+                            <span class="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300">■ bla (AmpR) (1840-2700)</span>
+                            <span class="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/40 text-amber-300">■ pUC ori (3120-3780)</span>
+                        </div>
+                    </div>
+
+                    <!-- Right: Restriction Endonuclease Digestion Table -->
+                    <div class="lg:col-span-5 bg-[#131926] border border-[#1f293d] rounded p-4 space-y-4">
+                        <div class="pb-2 border-b border-[#1f293d]">
+                            <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">2. RESTRICTION DIGESTION SIMULATOR</span>
+                            <p class="text-[11px] text-slate-500 font-mono">Endonuclease Cleavage Map &amp; Cloning Viability</p>
+                        </div>
+
+                        <div class="overflow-x-auto lab-scroll max-h-60">
+                            <table class="w-full text-left font-mono text-[11px]">
+                                <thead>
+                                    <tr class="border-b border-[#1f293d] text-slate-500 text-[10px]">
+                                        <th class="py-1 px-2">ENZYME</th>
+                                        <th class="py-1 px-2">MOTIF</th>
+                                        <th class="py-1 px-2">CUTS</th>
+                                        <th class="py-1 px-2">STATUS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="molbio-restriction-tbody" class="divide-y divide-[#182234]">
+                                    <tr><td colspan="4" class="py-3 text-center text-slate-600">Scan DNA to calculate enzyme cleavage.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Restriction Cuts Details Card -->
+                        <div id="molbio-restriction-detail-card" class="bg-[#090d15] border border-[#1f293d] rounded p-3 text-xs font-mono space-y-1">
+                            <div class="text-[10px] text-slate-500 uppercase tracking-wider">Cloning Viability Summary</div>
+                            <div id="molbio-cloning-verdict" class="text-slate-300 text-[11px] leading-relaxed">
+                                No DNA loaded. Enzymes that have 0 cuts inside your insert are 100% safe for flanking directional ligation.
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- ======================= PROTOCOL 04: BIOPHYSICAL AUDIT ======================= -->
         <section id="panel-protocol-audit" class="hidden space-y-5">
 
             <!-- Simple Explanation Banner -->
@@ -687,7 +1100,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function switchTab(protocolId) {
-            ['embed', 'extract', 'audit'].forEach(p => {
+            ['embed', 'extract', 'molbio', 'audit'].forEach(p => {
                 document.getElementById('panel-protocol-' + p).classList.add('hidden');
                 const btn = document.getElementById('btn-tab-' + p);
                 btn.className = "px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2";
@@ -783,6 +1196,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 document.getElementById('ds-strand-len-badge').innerText = data.stego_length.toLocaleString() + " bp duplex";
 
                 document.getElementById('raw-fasta-area').value = data.stego_fasta;
+                window.lastSynthesizedDNA = data.stego_sequence;
                 renderDuplexSequence(data.stego_sequence);
 
                 const coords = data.coordinates;
@@ -941,6 +1355,454 @@ INDEX_HTML = """<!DOCTYPE html>
         function saveVault(items) {
             localStorage.setItem('biocrypt_locus_registry', JSON.stringify(items));
             updateVaultPill();
+
+        // ==================== MOLECULAR BIOLOGY WORKBENCH ENGINE ====================
+        let currentMolBioFrame = 1;
+        window.lastSynthesizedDNA = "";
+
+        const CODON_DICT = {
+            'TTT': { aa: 'F', code3: 'Phe', name: 'Phenylalanine', cat: 'hydrophobic', mw: 165.19, kd: 2.8 },
+            'TTC': { aa: 'F', code3: 'Phe', name: 'Phenylalanine', cat: 'hydrophobic', mw: 165.19, kd: 2.8 },
+            'TTA': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'TTG': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTT': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTC': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTA': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTG': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'ATT': { aa: 'I', code3: 'Ile', name: 'Isoleucine', cat: 'hydrophobic', mw: 131.17, kd: 4.5 },
+            'ATC': { aa: 'I', code3: 'Ile', name: 'Isoleucine', cat: 'hydrophobic', mw: 131.17, kd: 4.5 },
+            'ATA': { aa: 'I', code3: 'Ile', name: 'Isoleucine', cat: 'hydrophobic', mw: 131.17, kd: 4.5 },
+            'ATG': { aa: 'M', code3: 'Met', name: 'Methionine (Start)', cat: 'hydrophobic', mw: 149.21, kd: 1.9 },
+            'GTT': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'GTC': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'GTA': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'GTG': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'TCT': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'TCC': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'TCA': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'TCG': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'CCT': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'CCC': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'CCA': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'CCG': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'ACT': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'ACC': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'ACA': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'ACG': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'GCT': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'GCC': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'GCA': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'GCG': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'TAT': { aa: 'Y', code3: 'Tyr', name: 'Tyrosine', cat: 'polar', mw: 181.19, kd: -1.3 },
+            'TAC': { aa: 'Y', code3: 'Tyr', name: 'Tyrosine', cat: 'polar', mw: 181.19, kd: -1.3 },
+            'TAA': { aa: '*', code3: 'Ter', name: 'Stop (Ochre)', cat: 'stop', mw: 0, kd: 0 },
+            'TAG': { aa: '*', code3: 'Ter', name: 'Stop (Amber)', cat: 'stop', mw: 0, kd: 0 },
+            'CAT': { aa: 'H', code3: 'His', name: 'Histidine', cat: 'basic', mw: 155.16, kd: -3.2 },
+            'CAC': { aa: 'H', code3: 'His', name: 'Histidine', cat: 'basic', mw: 155.16, kd: -3.2 },
+            'CAA': { aa: 'Q', code3: 'Gln', name: 'Glutamine', cat: 'polar', mw: 146.15, kd: -3.5 },
+            'CAG': { aa: 'Q', code3: 'Gln', name: 'Glutamine', cat: 'polar', mw: 146.15, kd: -3.5 },
+            'AAT': { aa: 'N', code3: 'Asn', name: 'Asparagine', cat: 'polar', mw: 132.12, kd: -3.5 },
+            'AAC': { aa: 'N', code3: 'Asn', name: 'Asparagine', cat: 'polar', mw: 132.12, kd: -3.5 },
+            'AAA': { aa: 'K', code3: 'Lys', name: 'Lysine', cat: 'basic', mw: 146.19, kd: -3.9 },
+            'AAG': { aa: 'K', code3: 'Lys', name: 'Lysine', cat: 'basic', mw: 146.19, kd: -3.9 },
+            'GAT': { aa: 'D', code3: 'Asp', name: 'Aspartic Acid', cat: 'acidic', mw: 133.10, kd: -3.5 },
+            'GAC': { aa: 'D', code3: 'Asp', name: 'Aspartic Acid', cat: 'acidic', mw: 133.10, kd: -3.5 },
+            'GAA': { aa: 'E', code3: 'Glu', name: 'Glutamic Acid', cat: 'acidic', mw: 147.13, kd: -3.5 },
+            'GAG': { aa: 'E', code3: 'Glu', name: 'Glutamic Acid', cat: 'acidic', mw: 147.13, kd: -3.5 },
+            'TGT': { aa: 'C', code3: 'Cys', name: 'Cysteine', cat: 'polar', mw: 121.16, kd: 2.5 },
+            'TGC': { aa: 'C', code3: 'Cys', name: 'Cysteine', cat: 'polar', mw: 121.16, kd: 2.5 },
+            'TGA': { aa: '*', code3: 'Ter', name: 'Stop (Opal)', cat: 'stop', mw: 0, kd: 0 },
+            'TGG': { aa: 'W', code3: 'Trp', name: 'Tryptophan', cat: 'hydrophobic', mw: 204.23, kd: -0.9 },
+            'CGT': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'CGC': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'CGA': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'CGG': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'AGT': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'AGC': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'AGA': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'AGG': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'GGT': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 },
+            'GGC': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 },
+            'GGA': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 },
+            'GGG': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 }
+        };
+
+        const ENZYME_LIST = [
+            { name: "EcoRI", seq: "GAATTC", cutOffset: 1, type: "5' Sticky (AATT)" },
+            { name: "BamHI", seq: "GGATCC", cutOffset: 1, type: "5' Sticky (GATC)" },
+            { name: "HindIII", seq: "AAGCTT", cutOffset: 1, type: "5' Sticky (AGCT)" },
+            { name: "PstI", seq: "CTGCAG", cutOffset: 5, type: "3' Sticky (TGCA)" },
+            { name: "NotI", seq: "GCGGCCGC", cutOffset: 2, type: "5' Sticky (GGCC)" },
+            { name: "XhoI", seq: "CTCGAG", cutOffset: 1, type: "5' Sticky (TCGA)" },
+            { name: "EcoRV", seq: "GATATC", cutOffset: 3, type: "Blunt" },
+            { name: "SalI", seq: "GTCGAC", cutOffset: 1, type: "5' Sticky (TCGA)" }
+        ];
+
+        const PLASMID_FEATURES = [
+            { id: "mcs", name: "BioCrypt Payload Cassette (MCS)", cat: "Multiple Cloning Site", start: 1, end: 450, color: "#38bdf8", desc: "Engineered multiple cloning site holding the synthetic steganographic DNA insert, flanked by rare restriction sites for directional cloning." },
+            { id: "t7", name: "T7 Promoter", cat: "Bacterial Promoter", start: 460, end: 540, color: "#c084fc", desc: "Bacteriophage T7 RNA polymerase high-level promoter enabling selective in vitro and in vivo recombinant transcription." },
+            { id: "lacz", name: "lacZ' Reporter Alpha-Peptide", cat: "Reporter Gene", start: 630, end: 1220, color: "#60a5fa", desc: "Beta-galactosidase alpha-peptide fragment allowing chromogenic blue-white colony screening on X-gal agar plates." },
+            { id: "bla", name: "bla (Ampicillin Resistance, AmpR)", cat: "Antibiotic Selection Marker", start: 1840, end: 2700, color: "#34d399", desc: "Beta-lactamase enzyme conferring resistance to beta-lactam antibiotics (ampicillin/carbenicillin), ensuring pure clonal selection." },
+            { id: "ori", name: "pUC Origin of Replication (ori)", cat: "Replication Origin", start: 3120, end: 3780, color: "#fbbf24", desc: "High copy-number pMB1-derived replication origin yielding 500-700 plasmid copies per bacterial cell." },
+            { id: "f1", name: "f1 Filamentous Phage Origin", cat: "Single-Stranded Origin", start: 4150, end: 4600, color: "#94a3b8", desc: "Permits packaging of single-stranded circular DNA for high-accuracy Sanger sequencing and mutagenesis." }
+        ];
+
+        function transferToMolBioLab() {
+            let seq = window.lastSynthesizedDNA;
+            if (!seq) {
+                const raw = document.getElementById('raw-fasta-area').value;
+                if (raw) {
+                    seq = raw.split('\n').filter(l => !l.startsWith('>')).join('').replace(/\s+/g, '');
+                }
+            }
+            if (!seq) {
+                showLabToast("Please synthesize a DNA secret first in Step 1.", "error");
+                return;
+            }
+            document.getElementById('molbio-input-seq').value = seq;
+            switchTab('protocol-molbio');
+            updateMolBioCounters();
+            runMolBioAnalysis();
+            showLabToast("DNA Cassette transferred to Molecular Biology Lab.", "success");
+        }
+
+        function setMolBioFrame(frame) {
+            currentMolBioFrame = frame;
+            document.getElementById('molbio-active-frame-label').innerText = frame;
+            [1, 2, 3].forEach(f => {
+                const btn = document.getElementById('btn-frame-' + f);
+                if (btn) {
+                    if (f === frame) {
+                        btn.className = "px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-700 text-white transition";
+                    } else {
+                        btn.className = "px-2 py-0.5 rounded text-[11px] text-slate-400 hover:text-white transition";
+                    }
+                }
+            });
+            runMolBioAnalysis();
+        }
+
+        function cleanDnaInput(text) {
+            let s = text.trim();
+            if (s.includes('>')) {
+                s = s.split('\n').filter(l => !l.startsWith('>')).join('');
+            }
+            return s.replace(/[^A-Za-z]/g, '').toUpperCase().replace(/U/g, 'T');
+        }
+
+        function updateMolBioCounters() {
+            const val = cleanDnaInput(document.getElementById('molbio-input-seq').value);
+            const len = val.length;
+            document.getElementById('molbio-counter-len').innerText = len.toLocaleString();
+            document.getElementById('molbio-counter-codons').innerText = Math.floor(len / 3).toLocaleString();
+            if (len > 0) {
+                const gc = (val.split('').filter(c => c === 'G' || c === 'C').length / len) * 100;
+                document.getElementById('molbio-counter-gc').innerText = gc.toFixed(1) + "%";
+            } else {
+                document.getElementById('molbio-counter-gc').innerText = "--%";
+            }
+        }
+
+        function loadMolBioPreset(preset) {
+            let seq = "";
+            if (preset === 'stego') {
+                seq = window.lastSynthesizedDNA || "ATCGTTAGGCTACGATCGGACGATTCTAGCTAGCTAGCTACGATCGTAGCTAGCTAGCATCGATCGTACGATCGATCGTAGCTAGCATCGATCGATCGTACGATCGTAGCTACGATCGTAGCCTAACGAT";
+            } else if (preset === 'insulin') {
+                seq = "ATGGCCCTGTGGATGCGCCTCCTGCCCCTGCTGGCGCTGCTGGCCCTCTGGGGACCTGACCCAGCCGCAGCCTTTGTGAACCAACACCTGTGCGGCTCACACCTGGTGGAAGCTCTCTACCTAGTGTGCGGGGAACGAGGCTTCTTCTACACACCCAAGACCCGCCGGGAGGCAGAGGACCTGCAGGGTGAG";
+            } else if (preset === 'gfp') {
+                seq = "ATGGTGAGCAAGGGCGAGGAGCTGTTCACCGGGGTGGTGCCCATCCTGGTCGAGCTGGACGGCGACGTAAACGGCCACAAGTTCAGCGTGTCCGGCGAGGGCGAGGGCGATGCCACCTACGGCAAGCTGACCCTGAAGTTCATCTGCACCACCGGCAAGCTGCCCGTGCCCTGGCCCACCCTCGTGACCACCCTGACCTACGGCGTGCAGTGCTTCAGCCGCTACCCCGACCACATGAAGCAGCACGACTTCTTCAAGTCCGCCATGCCCGAAGGCTACGTCCAGGAGCGC";
+            }
+            document.getElementById('molbio-input-seq').value = seq;
+            updateMolBioCounters();
+            runMolBioAnalysis();
+            showLabToast(`Loaded biological preset: ${preset.toUpperCase()}`, "info");
+        }
+
+        function runMolBioAnalysis() {
+            const raw = document.getElementById('molbio-input-seq').value;
+            const dna = cleanDnaInput(raw);
+            if (!dna) {
+                showLabToast("Please enter or paste a valid DNA sequence.", "error");
+                return;
+            }
+
+            const compMap = { 'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' };
+            const offset = currentMolBioFrame - 1;
+            const frameDna = dna.slice(offset);
+
+            // 1. Central Dogma Triplet Cascade
+            let tripletsDna = [];
+            let tripletsComp = [];
+            let tripletsRna = [];
+            let tripletsPeptide = [];
+            let codonsList = [];
+            let residueList = [];
+            let totalMw = 0;
+            let hydropathySum = 0;
+
+            for (let i = 0; i < frameDna.length - 2; i += 3) {
+                const trip = frameDna.slice(i, i + 3);
+                const info = CODON_DICT[trip] || { aa: '?', code3: 'Unk', name: 'Unknown', cat: 'unknown', mw: 110, kd: 0 };
+                codonsList.push(info);
+                residueList.push(info.aa);
+
+                tripletsDna.push(trip);
+                tripletsComp.push(trip.split('').map(c => compMap[c] || 'N').join(''));
+                tripletsRna.push(trip.replace(/T/g, 'U'));
+                tripletsPeptide.push(info.code3);
+
+                if (info.aa !== '*') {
+                    totalMw += (info.mw > 18.015 ? info.mw - 18.015 : info.mw);
+                    hydropathySum += info.kd;
+                }
+            }
+
+            if (residueList.length > 0 && totalMw > 0) {
+                totalMw += 18.015; // Terminal water addition
+            }
+
+            // Render Central Dogma Lines
+            let cascadeLines = [];
+            cascadeLines.push(`// Frame +${currentMolBioFrame} Central Dogma Cascade (Showing 5'->3' Sense, 3'->5' Antisense, mRNA, and Peptide Triplet Alignments)`);
+            cascadeLines.push("");
+
+            const chunkTriplets = 12; // 36 bp per line block
+            for (let i = 0; i < tripletsDna.length; i += chunkTriplets) {
+                const sliceDna = tripletsDna.slice(i, i + chunkTriplets);
+                const sliceComp = tripletsComp.slice(i, i + chunkTriplets);
+                const sliceRna = tripletsRna.slice(i, i + chunkTriplets);
+                const slicePep = tripletsPeptide.slice(i, i + chunkTriplets);
+
+                const baseCoord = String(offset + i * 3 + 1).padStart(5, '0');
+                const aaCoord = String(i + 1).padStart(4, '0');
+
+                cascadeLines.push(`${baseCoord}  DNA Sense (5'->3') :  ${sliceDna.join(' ')}`);
+                cascadeLines.push(`       DNA Anti  (3'->5') :  ${sliceComp.join(' ')}`);
+                cascadeLines.push(`       mRNA      (5'->3') :  ${sliceRna.join(' ')}`);
+                cascadeLines.push(`       Peptide   (aa ${aaCoord}) :  ${slicePep.join(' ')}`);
+                cascadeLines.push("");
+            }
+
+            if (tripletsDna.length === 0) {
+                cascadeLines.push("// DNA length too short for triplet translation in this reading frame.");
+            }
+
+            document.getElementById('molbio-triplet-viewer').innerHTML = cascadeLines.join('\n');
+
+            // 2. Render Polypeptide Ribbon Badges
+            const ribbonBox = document.getElementById('molbio-peptide-ribbon');
+            if (codonsList.length === 0) {
+                ribbonBox.innerHTML = `<span class="text-slate-500 text-[11px]">No codons translated.</span>`;
+            } else {
+                ribbonBox.innerHTML = codonsList.map((c, idx) => {
+                    let colorClass = "bg-amber-950/50 border-amber-500/50 text-amber-300";
+                    if (c.cat === 'polar') colorClass = "bg-cyan-950/50 border-cyan-400/50 text-cyan-300";
+                    else if (c.cat === 'basic') colorClass = "bg-blue-950/50 border-blue-500/50 text-blue-300";
+                    else if (c.cat === 'acidic') colorClass = "bg-rose-950/50 border-rose-500/50 text-rose-300";
+                    else if (c.cat === 'stop') colorClass = "bg-red-950 border-red-500 text-red-200 font-bold";
+                    else if (c.cat === 'special') colorClass = "bg-slate-800 border-slate-600 text-slate-300";
+
+                    return `<span title="Pos #${idx+1}: ${c.name} (${c.code3} / ${c.aa})\nMass: ${c.mw} Da\nClass: ${c.cat}" class="px-1.5 py-0.5 rounded border text-[11px] font-mono cursor-pointer hover:scale-110 transition ${colorClass}">${c.aa}</span>`;
+                }).join('');
+            }
+
+            document.getElementById('molbio-peptide-len-label').innerText = `${residueList.length} residues (${residueList.filter(a => a !== '*').length} active amino acids)`;
+
+            // 3. Biochemical & Proteomic Analytics
+            const validResidues = residueList.filter(a => a !== '*');
+            const totalRes = validResidues.length;
+            document.getElementById('molbio-stat-residues').innerText = totalRes + " aa";
+            document.getElementById('molbio-stat-mass').innerText = (totalMw / 1000).toFixed(2) + " kDa";
+            document.getElementById('molbio-stat-mass-da').innerText = Math.round(totalMw).toLocaleString() + " Da";
+
+            // Net Charge & Isoelectric Point calculation
+            function calcNetCharge(ph) {
+                // pKa values
+                const pK_N = 9.69;
+                const pK_C = 2.34;
+                const pK = { 'D': 3.86, 'E': 4.25, 'C': 8.33, 'Y': 10.07, 'H': 6.0, 'K': 10.53, 'R': 12.48 };
+
+                let q = 1.0 / (1.0 + Math.pow(10, ph - pK_N)) - 1.0 / (1.0 + Math.pow(10, pK_C - ph));
+                validResidues.forEach(r => {
+                    if (r === 'K' || r === 'R' || r === 'H') {
+                        q += 1.0 / (1.0 + Math.pow(10, ph - pK[r]));
+                    } else if (r === 'D' || r === 'E' || r === 'C' || r === 'Y') {
+                        q -= 1.0 / (1.0 + Math.pow(10, pK[r] - ph));
+                    }
+                });
+                return q;
+            }
+
+            // Bisection search for pI
+            let low = 0.0, high = 14.0, pi = 7.0;
+            if (totalRes > 0) {
+                for (let step = 0; step < 25; step++) {
+                    const mid = (low + high) / 2;
+                    const ch = calcNetCharge(mid);
+                    if (ch > 0) low = mid;
+                    else high = mid;
+                }
+                pi = (low + high) / 2;
+                const netCharge74 = calcNetCharge(7.4);
+                document.getElementById('molbio-stat-pi').innerText = "pI " + pi.toFixed(2);
+                document.getElementById('molbio-stat-charge').innerText = (netCharge74 >= 0 ? "+" : "") + netCharge74.toFixed(1) + " e";
+                
+                const gravy = hydropathySum / totalRes;
+                document.getElementById('molbio-stat-gravy').innerText = (gravy >= 0 ? "+" : "") + gravy.toFixed(2);
+                document.getElementById('molbio-stat-hydro-label').innerText = gravy >= 0 ? "Hydrophobic Core" : "Hydrophilic Soluble";
+            } else {
+                document.getElementById('molbio-stat-pi').innerText = "pI --";
+                document.getElementById('molbio-stat-charge').innerText = "--";
+                document.getElementById('molbio-stat-gravy').innerText = "--";
+                document.getElementById('molbio-stat-hydro-label').innerText = "Hydropathy Scale";
+            }
+
+            // 4. Restriction Digestion Simulator
+            const tbody = document.getElementById('molbio-restriction-tbody');
+            let digestSummary = [];
+            let safeEnzymes = [];
+
+            const enzymeRows = ENZYME_LIST.map(enz => {
+                let pos = 0;
+                let cuts = [];
+                while (true) {
+                    const idx = dna.indexOf(enz.seq, pos);
+                    if (idx === -1) break;
+                    cuts.push(idx + enz.cutOffset);
+                    pos = idx + 1;
+                }
+
+                let badge = "";
+                if (cuts.length === 0) {
+                    badge = `<span class="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-semibold">0 Cuts (Cloning Safe)</span>`;
+                    safeEnzymes.push(enz.name);
+                } else if (cuts.length === 1) {
+                    badge = `<span class="px-1.5 py-0.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">1 Cut (${cuts[0]} bp)</span>`;
+                } else {
+                    badge = `<span class="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300">${cuts.length} Cuts</span>`;
+                }
+
+                return `
+                    <tr class="hover:bg-[#192233] transition">
+                        <td class="py-1.5 px-2 font-semibold text-slate-200">${enz.name}</td>
+                        <td class="py-1.5 px-2 text-slate-400 font-mono text-[10px]">${enz.seq}</td>
+                        <td class="py-1.5 px-2 text-slate-300">${cuts.length}</td>
+                        <td class="py-1.5 px-2">${badge}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = enzymeRows.join('');
+
+            const verdictBox = document.getElementById('molbio-cloning-verdict');
+            if (safeEnzymes.length > 0) {
+                verdictBox.innerHTML = `<strong>Safe Flanking Cloning Endonucleases:</strong> ${safeEnzymes.join(', ')} do not cut within this DNA. Ideal for directional plasmid cloning without fragmenting your payload.`;
+            } else {
+                verdictBox.innerHTML = `All 8 tested restriction endonucleases cleave within this sequence. Select an alternate rare cutter (e.g. AscI, SbfI) for cloning.`;
+            }
+
+            // 5. Render Circular Plasmid Map
+            renderPlasmidMap(dna.length);
+        }
+
+        function polarToCartesian(cx, cy, r, angleDeg) {
+            const rad = (angleDeg - 90) * Math.PI / 180.0;
+            return {
+                x: cx + r * Math.cos(rad),
+                y: cy + r * Math.sin(rad)
+            };
+        }
+
+        function describeSvgArc(cx, cy, r, startAngle, endAngle) {
+            const start = polarToCartesian(cx, cy, r, startAngle);
+            const end = polarToCartesian(cx, cy, r, endAngle);
+            const diff = (endAngle - startAngle + 360) % 360;
+            const largeArc = diff > 180 ? 1 : 0;
+            return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+        }
+
+        function renderPlasmidMap(insertBp) {
+            const totalVectorBp = 4820 + (insertBp > 0 ? insertBp : 0);
+            document.getElementById('svg-plasmid-center-bp').innerText = totalVectorBp.toLocaleString() + " bp";
+
+            const container = document.getElementById('svg-plasmid-features');
+            const enzContainer = document.getElementById('svg-plasmid-enzymes');
+            container.innerHTML = "";
+            enzContainer.innerHTML = "";
+
+            const cx = 200, cy = 200, r = 130;
+
+            // Update MCS end coordinate
+            const features = JSON.parse(JSON.stringify(PLASMID_FEATURES));
+            if (insertBp > 0) {
+                features[0].end = Math.max(insertBp, 250);
+            }
+
+            features.forEach(feat => {
+                const startAngle = (feat.start / totalVectorBp) * 360;
+                const endAngle = (feat.end / totalVectorBp) * 360;
+
+                const pathData = describeSvgArc(cx, cy, r, startAngle, endAngle);
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", pathData);
+                path.setAttribute("fill", "none");
+                path.setAttribute("stroke", feat.color);
+                path.setAttribute("stroke-width", "16");
+                path.setAttribute("stroke-linecap", "round");
+                path.setAttribute("class", "hover:opacity-80 transition cursor-pointer");
+                path.onclick = () => selectPlasmidFeature(feat);
+                container.appendChild(path);
+            });
+
+            // Add outward tick markers for key cloning enzymes
+            const mapEnzymes = [
+                { name: "EcoRI", bp: 20 },
+                { name: "BamHI", bp: 90 },
+                { name: "HindIII", bp: 160 },
+                { name: "NotI", bp: 240 },
+                { name: "XhoI", bp: 320 },
+                { name: "PstI", bp: 400 }
+            ];
+
+            mapEnzymes.forEach(e => {
+                const angle = (e.bp / totalVectorBp) * 360;
+                const p1 = polarToCartesian(cx, cy, 140, angle);
+                const p2 = polarToCartesian(cx, cy, 150, angle);
+                const pText = polarToCartesian(cx, cy, 160, angle);
+
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", p1.x);
+                line.setAttribute("y1", p1.y);
+                line.setAttribute("x2", p2.x);
+                line.setAttribute("y2", p2.y);
+                line.setAttribute("stroke", "#64748b");
+                line.setAttribute("stroke-width", "1.5");
+                enzContainer.appendChild(line);
+
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", pText.x);
+                text.setAttribute("y", pText.y + 3);
+                text.setAttribute("fill", "#94a3b8");
+                text.setAttribute("font-size", "7.5");
+                text.setAttribute("font-family", "monospace");
+                text.setAttribute("text-anchor", "middle");
+                text.textContent = e.name;
+                enzContainer.appendChild(text);
+            });
+        }
+
+        function selectPlasmidFeature(feat) {
+            document.getElementById('plasmid-feat-name').innerText = feat.name;
+            document.getElementById('plasmid-feat-span').innerText = `${feat.start.toLocaleString()} -> ${feat.end.toLocaleString()} bp (${(feat.end - feat.start + 1).toLocaleString()} bp)`;
+            document.getElementById('plasmid-feat-cat').innerText = feat.cat;
+            document.getElementById('plasmid-feat-desc').innerText = feat.desc;
+        }
+
+        // Initialize plasmid map on load
+        setTimeout(() => {
+            renderPlasmidMap(450);
+        }, 500);
+
         }
         function updateVaultPill() {
             document.getElementById('vault-pill-count').innerText = getVault().length;
@@ -1023,6 +1885,454 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         updateVaultPill();
+
+        // ==================== MOLECULAR BIOLOGY WORKBENCH ENGINE ====================
+        let currentMolBioFrame = 1;
+        window.lastSynthesizedDNA = "";
+
+        const CODON_DICT = {
+            'TTT': { aa: 'F', code3: 'Phe', name: 'Phenylalanine', cat: 'hydrophobic', mw: 165.19, kd: 2.8 },
+            'TTC': { aa: 'F', code3: 'Phe', name: 'Phenylalanine', cat: 'hydrophobic', mw: 165.19, kd: 2.8 },
+            'TTA': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'TTG': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTT': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTC': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTA': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'CTG': { aa: 'L', code3: 'Leu', name: 'Leucine', cat: 'hydrophobic', mw: 131.17, kd: 3.8 },
+            'ATT': { aa: 'I', code3: 'Ile', name: 'Isoleucine', cat: 'hydrophobic', mw: 131.17, kd: 4.5 },
+            'ATC': { aa: 'I', code3: 'Ile', name: 'Isoleucine', cat: 'hydrophobic', mw: 131.17, kd: 4.5 },
+            'ATA': { aa: 'I', code3: 'Ile', name: 'Isoleucine', cat: 'hydrophobic', mw: 131.17, kd: 4.5 },
+            'ATG': { aa: 'M', code3: 'Met', name: 'Methionine (Start)', cat: 'hydrophobic', mw: 149.21, kd: 1.9 },
+            'GTT': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'GTC': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'GTA': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'GTG': { aa: 'V', code3: 'Val', name: 'Valine', cat: 'hydrophobic', mw: 117.15, kd: 4.2 },
+            'TCT': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'TCC': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'TCA': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'TCG': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'CCT': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'CCC': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'CCA': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'CCG': { aa: 'P', code3: 'Pro', name: 'Proline', cat: 'hydrophobic', mw: 115.13, kd: -1.6 },
+            'ACT': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'ACC': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'ACA': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'ACG': { aa: 'T', code3: 'Thr', name: 'Threonine', cat: 'polar', mw: 119.12, kd: -0.7 },
+            'GCT': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'GCC': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'GCA': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'GCG': { aa: 'A', code3: 'Ala', name: 'Alanine', cat: 'hydrophobic', mw: 89.09, kd: 1.8 },
+            'TAT': { aa: 'Y', code3: 'Tyr', name: 'Tyrosine', cat: 'polar', mw: 181.19, kd: -1.3 },
+            'TAC': { aa: 'Y', code3: 'Tyr', name: 'Tyrosine', cat: 'polar', mw: 181.19, kd: -1.3 },
+            'TAA': { aa: '*', code3: 'Ter', name: 'Stop (Ochre)', cat: 'stop', mw: 0, kd: 0 },
+            'TAG': { aa: '*', code3: 'Ter', name: 'Stop (Amber)', cat: 'stop', mw: 0, kd: 0 },
+            'CAT': { aa: 'H', code3: 'His', name: 'Histidine', cat: 'basic', mw: 155.16, kd: -3.2 },
+            'CAC': { aa: 'H', code3: 'His', name: 'Histidine', cat: 'basic', mw: 155.16, kd: -3.2 },
+            'CAA': { aa: 'Q', code3: 'Gln', name: 'Glutamine', cat: 'polar', mw: 146.15, kd: -3.5 },
+            'CAG': { aa: 'Q', code3: 'Gln', name: 'Glutamine', cat: 'polar', mw: 146.15, kd: -3.5 },
+            'AAT': { aa: 'N', code3: 'Asn', name: 'Asparagine', cat: 'polar', mw: 132.12, kd: -3.5 },
+            'AAC': { aa: 'N', code3: 'Asn', name: 'Asparagine', cat: 'polar', mw: 132.12, kd: -3.5 },
+            'AAA': { aa: 'K', code3: 'Lys', name: 'Lysine', cat: 'basic', mw: 146.19, kd: -3.9 },
+            'AAG': { aa: 'K', code3: 'Lys', name: 'Lysine', cat: 'basic', mw: 146.19, kd: -3.9 },
+            'GAT': { aa: 'D', code3: 'Asp', name: 'Aspartic Acid', cat: 'acidic', mw: 133.10, kd: -3.5 },
+            'GAC': { aa: 'D', code3: 'Asp', name: 'Aspartic Acid', cat: 'acidic', mw: 133.10, kd: -3.5 },
+            'GAA': { aa: 'E', code3: 'Glu', name: 'Glutamic Acid', cat: 'acidic', mw: 147.13, kd: -3.5 },
+            'GAG': { aa: 'E', code3: 'Glu', name: 'Glutamic Acid', cat: 'acidic', mw: 147.13, kd: -3.5 },
+            'TGT': { aa: 'C', code3: 'Cys', name: 'Cysteine', cat: 'polar', mw: 121.16, kd: 2.5 },
+            'TGC': { aa: 'C', code3: 'Cys', name: 'Cysteine', cat: 'polar', mw: 121.16, kd: 2.5 },
+            'TGA': { aa: '*', code3: 'Ter', name: 'Stop (Opal)', cat: 'stop', mw: 0, kd: 0 },
+            'TGG': { aa: 'W', code3: 'Trp', name: 'Tryptophan', cat: 'hydrophobic', mw: 204.23, kd: -0.9 },
+            'CGT': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'CGC': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'CGA': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'CGG': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'AGT': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'AGC': { aa: 'S', code3: 'Ser', name: 'Serine', cat: 'polar', mw: 105.09, kd: -0.8 },
+            'AGA': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'AGG': { aa: 'R', code3: 'Arg', name: 'Arginine', cat: 'basic', mw: 174.20, kd: -4.5 },
+            'GGT': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 },
+            'GGC': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 },
+            'GGA': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 },
+            'GGG': { aa: 'G', code3: 'Gly', name: 'Glycine', cat: 'special', mw: 75.07, kd: -0.4 }
+        };
+
+        const ENZYME_LIST = [
+            { name: "EcoRI", seq: "GAATTC", cutOffset: 1, type: "5' Sticky (AATT)" },
+            { name: "BamHI", seq: "GGATCC", cutOffset: 1, type: "5' Sticky (GATC)" },
+            { name: "HindIII", seq: "AAGCTT", cutOffset: 1, type: "5' Sticky (AGCT)" },
+            { name: "PstI", seq: "CTGCAG", cutOffset: 5, type: "3' Sticky (TGCA)" },
+            { name: "NotI", seq: "GCGGCCGC", cutOffset: 2, type: "5' Sticky (GGCC)" },
+            { name: "XhoI", seq: "CTCGAG", cutOffset: 1, type: "5' Sticky (TCGA)" },
+            { name: "EcoRV", seq: "GATATC", cutOffset: 3, type: "Blunt" },
+            { name: "SalI", seq: "GTCGAC", cutOffset: 1, type: "5' Sticky (TCGA)" }
+        ];
+
+        const PLASMID_FEATURES = [
+            { id: "mcs", name: "BioCrypt Payload Cassette (MCS)", cat: "Multiple Cloning Site", start: 1, end: 450, color: "#38bdf8", desc: "Engineered multiple cloning site holding the synthetic steganographic DNA insert, flanked by rare restriction sites for directional cloning." },
+            { id: "t7", name: "T7 Promoter", cat: "Bacterial Promoter", start: 460, end: 540, color: "#c084fc", desc: "Bacteriophage T7 RNA polymerase high-level promoter enabling selective in vitro and in vivo recombinant transcription." },
+            { id: "lacz", name: "lacZ' Reporter Alpha-Peptide", cat: "Reporter Gene", start: 630, end: 1220, color: "#60a5fa", desc: "Beta-galactosidase alpha-peptide fragment allowing chromogenic blue-white colony screening on X-gal agar plates." },
+            { id: "bla", name: "bla (Ampicillin Resistance, AmpR)", cat: "Antibiotic Selection Marker", start: 1840, end: 2700, color: "#34d399", desc: "Beta-lactamase enzyme conferring resistance to beta-lactam antibiotics (ampicillin/carbenicillin), ensuring pure clonal selection." },
+            { id: "ori", name: "pUC Origin of Replication (ori)", cat: "Replication Origin", start: 3120, end: 3780, color: "#fbbf24", desc: "High copy-number pMB1-derived replication origin yielding 500-700 plasmid copies per bacterial cell." },
+            { id: "f1", name: "f1 Filamentous Phage Origin", cat: "Single-Stranded Origin", start: 4150, end: 4600, color: "#94a3b8", desc: "Permits packaging of single-stranded circular DNA for high-accuracy Sanger sequencing and mutagenesis." }
+        ];
+
+        function transferToMolBioLab() {
+            let seq = window.lastSynthesizedDNA;
+            if (!seq) {
+                const raw = document.getElementById('raw-fasta-area').value;
+                if (raw) {
+                    seq = raw.split('\n').filter(l => !l.startsWith('>')).join('').replace(/\s+/g, '');
+                }
+            }
+            if (!seq) {
+                showLabToast("Please synthesize a DNA secret first in Step 1.", "error");
+                return;
+            }
+            document.getElementById('molbio-input-seq').value = seq;
+            switchTab('protocol-molbio');
+            updateMolBioCounters();
+            runMolBioAnalysis();
+            showLabToast("DNA Cassette transferred to Molecular Biology Lab.", "success");
+        }
+
+        function setMolBioFrame(frame) {
+            currentMolBioFrame = frame;
+            document.getElementById('molbio-active-frame-label').innerText = frame;
+            [1, 2, 3].forEach(f => {
+                const btn = document.getElementById('btn-frame-' + f);
+                if (btn) {
+                    if (f === frame) {
+                        btn.className = "px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-700 text-white transition";
+                    } else {
+                        btn.className = "px-2 py-0.5 rounded text-[11px] text-slate-400 hover:text-white transition";
+                    }
+                }
+            });
+            runMolBioAnalysis();
+        }
+
+        function cleanDnaInput(text) {
+            let s = text.trim();
+            if (s.includes('>')) {
+                s = s.split('\n').filter(l => !l.startsWith('>')).join('');
+            }
+            return s.replace(/[^A-Za-z]/g, '').toUpperCase().replace(/U/g, 'T');
+        }
+
+        function updateMolBioCounters() {
+            const val = cleanDnaInput(document.getElementById('molbio-input-seq').value);
+            const len = val.length;
+            document.getElementById('molbio-counter-len').innerText = len.toLocaleString();
+            document.getElementById('molbio-counter-codons').innerText = Math.floor(len / 3).toLocaleString();
+            if (len > 0) {
+                const gc = (val.split('').filter(c => c === 'G' || c === 'C').length / len) * 100;
+                document.getElementById('molbio-counter-gc').innerText = gc.toFixed(1) + "%";
+            } else {
+                document.getElementById('molbio-counter-gc').innerText = "--%";
+            }
+        }
+
+        function loadMolBioPreset(preset) {
+            let seq = "";
+            if (preset === 'stego') {
+                seq = window.lastSynthesizedDNA || "ATCGTTAGGCTACGATCGGACGATTCTAGCTAGCTAGCTACGATCGTAGCTAGCTAGCATCGATCGTACGATCGATCGTAGCTAGCATCGATCGATCGTACGATCGTAGCTACGATCGTAGCCTAACGAT";
+            } else if (preset === 'insulin') {
+                seq = "ATGGCCCTGTGGATGCGCCTCCTGCCCCTGCTGGCGCTGCTGGCCCTCTGGGGACCTGACCCAGCCGCAGCCTTTGTGAACCAACACCTGTGCGGCTCACACCTGGTGGAAGCTCTCTACCTAGTGTGCGGGGAACGAGGCTTCTTCTACACACCCAAGACCCGCCGGGAGGCAGAGGACCTGCAGGGTGAG";
+            } else if (preset === 'gfp') {
+                seq = "ATGGTGAGCAAGGGCGAGGAGCTGTTCACCGGGGTGGTGCCCATCCTGGTCGAGCTGGACGGCGACGTAAACGGCCACAAGTTCAGCGTGTCCGGCGAGGGCGAGGGCGATGCCACCTACGGCAAGCTGACCCTGAAGTTCATCTGCACCACCGGCAAGCTGCCCGTGCCCTGGCCCACCCTCGTGACCACCCTGACCTACGGCGTGCAGTGCTTCAGCCGCTACCCCGACCACATGAAGCAGCACGACTTCTTCAAGTCCGCCATGCCCGAAGGCTACGTCCAGGAGCGC";
+            }
+            document.getElementById('molbio-input-seq').value = seq;
+            updateMolBioCounters();
+            runMolBioAnalysis();
+            showLabToast(`Loaded biological preset: ${preset.toUpperCase()}`, "info");
+        }
+
+        function runMolBioAnalysis() {
+            const raw = document.getElementById('molbio-input-seq').value;
+            const dna = cleanDnaInput(raw);
+            if (!dna) {
+                showLabToast("Please enter or paste a valid DNA sequence.", "error");
+                return;
+            }
+
+            const compMap = { 'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' };
+            const offset = currentMolBioFrame - 1;
+            const frameDna = dna.slice(offset);
+
+            // 1. Central Dogma Triplet Cascade
+            let tripletsDna = [];
+            let tripletsComp = [];
+            let tripletsRna = [];
+            let tripletsPeptide = [];
+            let codonsList = [];
+            let residueList = [];
+            let totalMw = 0;
+            let hydropathySum = 0;
+
+            for (let i = 0; i < frameDna.length - 2; i += 3) {
+                const trip = frameDna.slice(i, i + 3);
+                const info = CODON_DICT[trip] || { aa: '?', code3: 'Unk', name: 'Unknown', cat: 'unknown', mw: 110, kd: 0 };
+                codonsList.push(info);
+                residueList.push(info.aa);
+
+                tripletsDna.push(trip);
+                tripletsComp.push(trip.split('').map(c => compMap[c] || 'N').join(''));
+                tripletsRna.push(trip.replace(/T/g, 'U'));
+                tripletsPeptide.push(info.code3);
+
+                if (info.aa !== '*') {
+                    totalMw += (info.mw > 18.015 ? info.mw - 18.015 : info.mw);
+                    hydropathySum += info.kd;
+                }
+            }
+
+            if (residueList.length > 0 && totalMw > 0) {
+                totalMw += 18.015; // Terminal water addition
+            }
+
+            // Render Central Dogma Lines
+            let cascadeLines = [];
+            cascadeLines.push(`// Frame +${currentMolBioFrame} Central Dogma Cascade (Showing 5'->3' Sense, 3'->5' Antisense, mRNA, and Peptide Triplet Alignments)`);
+            cascadeLines.push("");
+
+            const chunkTriplets = 12; // 36 bp per line block
+            for (let i = 0; i < tripletsDna.length; i += chunkTriplets) {
+                const sliceDna = tripletsDna.slice(i, i + chunkTriplets);
+                const sliceComp = tripletsComp.slice(i, i + chunkTriplets);
+                const sliceRna = tripletsRna.slice(i, i + chunkTriplets);
+                const slicePep = tripletsPeptide.slice(i, i + chunkTriplets);
+
+                const baseCoord = String(offset + i * 3 + 1).padStart(5, '0');
+                const aaCoord = String(i + 1).padStart(4, '0');
+
+                cascadeLines.push(`${baseCoord}  DNA Sense (5'->3') :  ${sliceDna.join(' ')}`);
+                cascadeLines.push(`       DNA Anti  (3'->5') :  ${sliceComp.join(' ')}`);
+                cascadeLines.push(`       mRNA      (5'->3') :  ${sliceRna.join(' ')}`);
+                cascadeLines.push(`       Peptide   (aa ${aaCoord}) :  ${slicePep.join(' ')}`);
+                cascadeLines.push("");
+            }
+
+            if (tripletsDna.length === 0) {
+                cascadeLines.push("// DNA length too short for triplet translation in this reading frame.");
+            }
+
+            document.getElementById('molbio-triplet-viewer').innerHTML = cascadeLines.join('\n');
+
+            // 2. Render Polypeptide Ribbon Badges
+            const ribbonBox = document.getElementById('molbio-peptide-ribbon');
+            if (codonsList.length === 0) {
+                ribbonBox.innerHTML = `<span class="text-slate-500 text-[11px]">No codons translated.</span>`;
+            } else {
+                ribbonBox.innerHTML = codonsList.map((c, idx) => {
+                    let colorClass = "bg-amber-950/50 border-amber-500/50 text-amber-300";
+                    if (c.cat === 'polar') colorClass = "bg-cyan-950/50 border-cyan-400/50 text-cyan-300";
+                    else if (c.cat === 'basic') colorClass = "bg-blue-950/50 border-blue-500/50 text-blue-300";
+                    else if (c.cat === 'acidic') colorClass = "bg-rose-950/50 border-rose-500/50 text-rose-300";
+                    else if (c.cat === 'stop') colorClass = "bg-red-950 border-red-500 text-red-200 font-bold";
+                    else if (c.cat === 'special') colorClass = "bg-slate-800 border-slate-600 text-slate-300";
+
+                    return `<span title="Pos #${idx+1}: ${c.name} (${c.code3} / ${c.aa})\nMass: ${c.mw} Da\nClass: ${c.cat}" class="px-1.5 py-0.5 rounded border text-[11px] font-mono cursor-pointer hover:scale-110 transition ${colorClass}">${c.aa}</span>`;
+                }).join('');
+            }
+
+            document.getElementById('molbio-peptide-len-label').innerText = `${residueList.length} residues (${residueList.filter(a => a !== '*').length} active amino acids)`;
+
+            // 3. Biochemical & Proteomic Analytics
+            const validResidues = residueList.filter(a => a !== '*');
+            const totalRes = validResidues.length;
+            document.getElementById('molbio-stat-residues').innerText = totalRes + " aa";
+            document.getElementById('molbio-stat-mass').innerText = (totalMw / 1000).toFixed(2) + " kDa";
+            document.getElementById('molbio-stat-mass-da').innerText = Math.round(totalMw).toLocaleString() + " Da";
+
+            // Net Charge & Isoelectric Point calculation
+            function calcNetCharge(ph) {
+                // pKa values
+                const pK_N = 9.69;
+                const pK_C = 2.34;
+                const pK = { 'D': 3.86, 'E': 4.25, 'C': 8.33, 'Y': 10.07, 'H': 6.0, 'K': 10.53, 'R': 12.48 };
+
+                let q = 1.0 / (1.0 + Math.pow(10, ph - pK_N)) - 1.0 / (1.0 + Math.pow(10, pK_C - ph));
+                validResidues.forEach(r => {
+                    if (r === 'K' || r === 'R' || r === 'H') {
+                        q += 1.0 / (1.0 + Math.pow(10, ph - pK[r]));
+                    } else if (r === 'D' || r === 'E' || r === 'C' || r === 'Y') {
+                        q -= 1.0 / (1.0 + Math.pow(10, pK[r] - ph));
+                    }
+                });
+                return q;
+            }
+
+            // Bisection search for pI
+            let low = 0.0, high = 14.0, pi = 7.0;
+            if (totalRes > 0) {
+                for (let step = 0; step < 25; step++) {
+                    const mid = (low + high) / 2;
+                    const ch = calcNetCharge(mid);
+                    if (ch > 0) low = mid;
+                    else high = mid;
+                }
+                pi = (low + high) / 2;
+                const netCharge74 = calcNetCharge(7.4);
+                document.getElementById('molbio-stat-pi').innerText = "pI " + pi.toFixed(2);
+                document.getElementById('molbio-stat-charge').innerText = (netCharge74 >= 0 ? "+" : "") + netCharge74.toFixed(1) + " e";
+                
+                const gravy = hydropathySum / totalRes;
+                document.getElementById('molbio-stat-gravy').innerText = (gravy >= 0 ? "+" : "") + gravy.toFixed(2);
+                document.getElementById('molbio-stat-hydro-label').innerText = gravy >= 0 ? "Hydrophobic Core" : "Hydrophilic Soluble";
+            } else {
+                document.getElementById('molbio-stat-pi').innerText = "pI --";
+                document.getElementById('molbio-stat-charge').innerText = "--";
+                document.getElementById('molbio-stat-gravy').innerText = "--";
+                document.getElementById('molbio-stat-hydro-label').innerText = "Hydropathy Scale";
+            }
+
+            // 4. Restriction Digestion Simulator
+            const tbody = document.getElementById('molbio-restriction-tbody');
+            let digestSummary = [];
+            let safeEnzymes = [];
+
+            const enzymeRows = ENZYME_LIST.map(enz => {
+                let pos = 0;
+                let cuts = [];
+                while (true) {
+                    const idx = dna.indexOf(enz.seq, pos);
+                    if (idx === -1) break;
+                    cuts.push(idx + enz.cutOffset);
+                    pos = idx + 1;
+                }
+
+                let badge = "";
+                if (cuts.length === 0) {
+                    badge = `<span class="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-semibold">0 Cuts (Cloning Safe)</span>`;
+                    safeEnzymes.push(enz.name);
+                } else if (cuts.length === 1) {
+                    badge = `<span class="px-1.5 py-0.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">1 Cut (${cuts[0]} bp)</span>`;
+                } else {
+                    badge = `<span class="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300">${cuts.length} Cuts</span>`;
+                }
+
+                return `
+                    <tr class="hover:bg-[#192233] transition">
+                        <td class="py-1.5 px-2 font-semibold text-slate-200">${enz.name}</td>
+                        <td class="py-1.5 px-2 text-slate-400 font-mono text-[10px]">${enz.seq}</td>
+                        <td class="py-1.5 px-2 text-slate-300">${cuts.length}</td>
+                        <td class="py-1.5 px-2">${badge}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = enzymeRows.join('');
+
+            const verdictBox = document.getElementById('molbio-cloning-verdict');
+            if (safeEnzymes.length > 0) {
+                verdictBox.innerHTML = `<strong>Safe Flanking Cloning Endonucleases:</strong> ${safeEnzymes.join(', ')} do not cut within this DNA. Ideal for directional plasmid cloning without fragmenting your payload.`;
+            } else {
+                verdictBox.innerHTML = `All 8 tested restriction endonucleases cleave within this sequence. Select an alternate rare cutter (e.g. AscI, SbfI) for cloning.`;
+            }
+
+            // 5. Render Circular Plasmid Map
+            renderPlasmidMap(dna.length);
+        }
+
+        function polarToCartesian(cx, cy, r, angleDeg) {
+            const rad = (angleDeg - 90) * Math.PI / 180.0;
+            return {
+                x: cx + r * Math.cos(rad),
+                y: cy + r * Math.sin(rad)
+            };
+        }
+
+        function describeSvgArc(cx, cy, r, startAngle, endAngle) {
+            const start = polarToCartesian(cx, cy, r, startAngle);
+            const end = polarToCartesian(cx, cy, r, endAngle);
+            const diff = (endAngle - startAngle + 360) % 360;
+            const largeArc = diff > 180 ? 1 : 0;
+            return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+        }
+
+        function renderPlasmidMap(insertBp) {
+            const totalVectorBp = 4820 + (insertBp > 0 ? insertBp : 0);
+            document.getElementById('svg-plasmid-center-bp').innerText = totalVectorBp.toLocaleString() + " bp";
+
+            const container = document.getElementById('svg-plasmid-features');
+            const enzContainer = document.getElementById('svg-plasmid-enzymes');
+            container.innerHTML = "";
+            enzContainer.innerHTML = "";
+
+            const cx = 200, cy = 200, r = 130;
+
+            // Update MCS end coordinate
+            const features = JSON.parse(JSON.stringify(PLASMID_FEATURES));
+            if (insertBp > 0) {
+                features[0].end = Math.max(insertBp, 250);
+            }
+
+            features.forEach(feat => {
+                const startAngle = (feat.start / totalVectorBp) * 360;
+                const endAngle = (feat.end / totalVectorBp) * 360;
+
+                const pathData = describeSvgArc(cx, cy, r, startAngle, endAngle);
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", pathData);
+                path.setAttribute("fill", "none");
+                path.setAttribute("stroke", feat.color);
+                path.setAttribute("stroke-width", "16");
+                path.setAttribute("stroke-linecap", "round");
+                path.setAttribute("class", "hover:opacity-80 transition cursor-pointer");
+                path.onclick = () => selectPlasmidFeature(feat);
+                container.appendChild(path);
+            });
+
+            // Add outward tick markers for key cloning enzymes
+            const mapEnzymes = [
+                { name: "EcoRI", bp: 20 },
+                { name: "BamHI", bp: 90 },
+                { name: "HindIII", bp: 160 },
+                { name: "NotI", bp: 240 },
+                { name: "XhoI", bp: 320 },
+                { name: "PstI", bp: 400 }
+            ];
+
+            mapEnzymes.forEach(e => {
+                const angle = (e.bp / totalVectorBp) * 360;
+                const p1 = polarToCartesian(cx, cy, 140, angle);
+                const p2 = polarToCartesian(cx, cy, 150, angle);
+                const pText = polarToCartesian(cx, cy, 160, angle);
+
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", p1.x);
+                line.setAttribute("y1", p1.y);
+                line.setAttribute("x2", p2.x);
+                line.setAttribute("y2", p2.y);
+                line.setAttribute("stroke", "#64748b");
+                line.setAttribute("stroke-width", "1.5");
+                enzContainer.appendChild(line);
+
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", pText.x);
+                text.setAttribute("y", pText.y + 3);
+                text.setAttribute("fill", "#94a3b8");
+                text.setAttribute("font-size", "7.5");
+                text.setAttribute("font-family", "monospace");
+                text.setAttribute("text-anchor", "middle");
+                text.textContent = e.name;
+                enzContainer.appendChild(text);
+            });
+        }
+
+        function selectPlasmidFeature(feat) {
+            document.getElementById('plasmid-feat-name').innerText = feat.name;
+            document.getElementById('plasmid-feat-span').innerText = `${feat.start.toLocaleString()} -> ${feat.end.toLocaleString()} bp (${(feat.end - feat.start + 1).toLocaleString()} bp)`;
+            document.getElementById('plasmid-feat-cat').innerText = feat.cat;
+            document.getElementById('plasmid-feat-desc').innerText = feat.desc;
+        }
+
+        // Initialize plasmid map on load
+        setTimeout(() => {
+            renderPlasmidMap(450);
+        }, 500);
+
     </script>
 </body>
 </html>
