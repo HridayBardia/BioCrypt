@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api/simulate-pcr",
-      "destination": "/api/simulate_pcr"
-    },
-    {
       "source": "/",
       "destination": "/api/index.py"
     }

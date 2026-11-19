@@ -3,7 +3,6 @@ BioCrypt Genomics Laboratory Workstation
 ========================================
 High-precision computational biology platform with:
 - Linear Genomic Cassette Map (Interactive SVG locus view)
-- In-Silico Virtual Agarose Gel Electrophoresis (UV transilluminator simulation)
 - Double-Stranded 5'->3' / 3'->5' Nucleotide Inspector
 - Sliding-Window GC% Density Profile Graph (SVG dynamic area plot)
 - Authenticated AES-256-GCM + 9-State Transduction FSM
@@ -64,12 +63,6 @@ class ExtractRequest(BaseModel):
 
 class AuditRequest(BaseModel):
     sequence: str
-
-
-class PcrRequest(BaseModel):
-    sequence: str
-    fwd_primer: Optional[str] = "ATCGTTAGGCTACGATCG"
-    rev_primer: Optional[str] = "CGATCGTAGCCTAACGAT"
 
 
 @app.post("/api/conceal")
@@ -198,55 +191,6 @@ async def api_audit(payload: AuditRequest):
     }
 
 
-@app.post("/api/simulate-pcr")
-@app.post("/simulate-pcr")
-async def api_simulate_pcr(payload: PcrRequest):
-    if not payload.sequence.strip():
-        raise HTTPException(status_code=400, detail="Genomic sequence required.")
-
-    fwd = payload.fwd_primer or "ATCGTTAGGCTACGATCG"
-    rev = payload.rev_primer or "CGATCGTAGCCTAACGAT"
-
-    carrier = CarrierEngine(fwd_primer=fwd, rev_primer=rev)
-
-    seq = payload.sequence
-    if ">" in seq:
-        try:
-            records = carrier.read_fasta(seq)
-            seq = records[0].sequence
-        except Exception:
-            pass
-
-    clean_seq = "".join(ch for ch in seq if ch.isalpha()).upper()
-
-    fwd_tm = BiologicalMetrics.estimate_melting_temp(fwd)
-    rev_tm = BiologicalMetrics.estimate_melting_temp(rev)
-
-    try:
-        extracted = carrier.extract_from_carrier(clean_seq)
-        amplicon = carrier.assemble_amplicon(extracted)
-        fwd_idx = clean_seq.find(carrier.fwd_primer)
-        rev_idx = clean_seq.find(carrier.rev_primer, fwd_idx + len(carrier.fwd_primer))
-
-        return {
-            "success": True,
-            "amplicon_length": len(amplicon),
-            "payload_length": len(extracted),
-            "fwd_primer": fwd,
-            "fwd_tm": round(fwd_tm, 1),
-            "rev_primer": rev,
-            "rev_tm": round(rev_tm, 1),
-            "annealing_tm_recommended": round(min(fwd_tm, rev_tm) - 5.0, 1),
-            "amplicon_sequence": amplicon,
-            "coordinates": {"fwd_start": fwd_idx, "rev_end": rev_idx + len(rev)},
-        }
-    except PrimerNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail="PCR amplification yielded zero product. Primer hybridization failed.",
-        )
-
-
 @app.get("/api/test-headers")
 @app.post("/api/test-headers")
 async def test_headers(request: Request):
@@ -313,19 +257,6 @@ INDEX_HTML = """<!DOCTYPE html>
         .nt-C { color: var(--color-c); }
         .nt-G { color: var(--color-g); }
         .nt-T { color: var(--color-t); }
-        .gel-lane {
-            background: linear-gradient(180deg, #070a10 0%, #0d121c 100%);
-            box-shadow: inset 0 0 12px rgba(0,0,0,0.8);
-        }
-        .gel-band {
-            background: linear-gradient(90deg, transparent 5%, #38bdf8 30%, #a5f3fc 50%, #38bdf8 70%, transparent 95%);
-            filter: drop-shadow(0 0 4px #06b6d4) drop-shadow(0 0 8px #38bdf8);
-            border-radius: 1px;
-        }
-        .gel-band-ladder {
-            background: linear-gradient(90deg, transparent 10%, #64748b 40%, #94a3b8 50%, #64748b 60%, transparent 90%);
-            opacity: 0.7;
-        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased">
@@ -377,11 +308,8 @@ INDEX_HTML = """<!DOCTYPE html>
             <button onclick="switchTab('protocol-extract')" id="btn-tab-extract" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2">
                 <span class="text-slate-500">02</span> Recover Secret (Decode)
             </button>
-            <button onclick="switchTab('protocol-gel')" id="btn-tab-gel" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2">
-                <span class="text-slate-500">03</span> Virtual Gel Test
-            </button>
             <button onclick="switchTab('protocol-audit')" id="btn-tab-audit" class="px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2">
-                <span class="text-slate-500">04</span> DNA Health Check
+                <span class="text-slate-500">03</span> DNA Health Check
             </button>
         </div>
     </div>
@@ -657,115 +585,15 @@ INDEX_HTML = """<!DOCTYPE html>
 
             </div>
         </section>
-        <!-- ======================= PROTOCOL 03: VIRTUAL AGAROSE GEL ELECTROPHORESIS ======================= -->
-        <section id="panel-protocol-gel" class="hidden space-y-5">
 
-            <!-- Simple Explanation Banner -->
-            <div class="bg-[#101726] border border-[#23334d] rounded-lg p-3.5 flex items-start space-x-3 text-xs">
-                <div class="text-sky-400 font-bold text-sm mt-0.5">&#9432;</div>
-                <div>
-                    <span class="font-semibold text-slate-200">How Step 3 Works in Plain Words:</span>
-                    <p class="text-slate-400 mt-0.5 leading-relaxed">
-                        In biology labs, scientists use "Gel Electrophoresis" under UV light to measure DNA size. Smaller pieces run faster and travel lower down the gel. 
-                        This virtual tank compares your hidden DNA piece against a standard 1,000-base-pair ruler so you can physically verify its size.
-                    </p>
-                </div>
-            </div>
-
-            <div class="bg-[#131926] border border-[#1f293d] rounded p-4 space-y-4">
-                <div class="flex items-center justify-between pb-2 border-b border-[#1f293d]">
-                    <div>
-                        <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">3. VIRTUAL GEL SIZE TEST</span>
-                        <p class="text-[11px] text-slate-500 font-mono mt-0.5">Simulated Agarose Gel with 1 kb DNA Reference Ladder under UV light</p>
-                    </div>
-                    <span class="text-[11px] font-mono text-sky-400">UV LIGHT: ON</span>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
-                    <div class="md:col-span-5 bg-[#070a10] border border-[#1f293d] rounded p-4 flex flex-col items-center">
-                        <div class="w-full flex justify-between text-[10px] font-mono text-slate-500 pb-2 border-b border-[#1f293d]/50">
-                            <span>WELL 1: DNA RULER</span>
-                            <span>WELL 2: YOUR SECRET DNA</span>
-                        </div>
-
-                        <div class="w-full h-80 gel-lane relative flex justify-around px-6 py-4 mt-2 rounded border border-[#1e293b]/60">
-                            <div class="w-16 h-full relative flex flex-col items-center">
-                                <div class="w-10 h-1.5 bg-[#1f293d] rounded-t mb-2"></div>
-                                <div class="w-12 h-1 gel-band-ladder absolute top-8" title="1,500 bp"><span class="text-[9px] font-mono text-slate-500 absolute -left-8 -top-1">1.5kb</span></div>
-                                <div class="w-12 h-1 gel-band-ladder absolute top-16" title="1,000 bp"><span class="text-[9px] font-mono text-slate-500 absolute -left-8 -top-1">1.0kb</span></div>
-                                <div class="w-12 h-1 gel-band-ladder absolute top-28" title="750 bp"><span class="text-[9px] font-mono text-slate-500 absolute -left-8 -top-1">750bp</span></div>
-                                <div class="w-12 h-1.5 gel-band-ladder absolute top-40 opacity-90" title="500 bp (Reference)"><span class="text-[9px] font-mono text-sky-400 absolute -left-8 -top-1">500bp</span></div>
-                                <div class="w-12 h-1 gel-band-ladder absolute top-52" title="250 bp"><span class="text-[9px] font-mono text-slate-500 absolute -left-8 -top-1">250bp</span></div>
-                                <div class="w-12 h-1 gel-band-ladder absolute top-64" title="100 bp"><span class="text-[9px] font-mono text-slate-500 absolute -left-8 -top-1">100bp</span></div>
-                            </div>
-
-                            <div class="w-16 h-full relative flex flex-col items-center">
-                                <div class="w-10 h-1.5 bg-[#1f293d] rounded-t mb-2"></div>
-                                <div id="gel-amplicon-band" class="w-14 h-2 gel-band absolute transition-all duration-500" style="top: 130px;"></div>
-                            </div>
-                        </div>
-
-                        <div class="w-full flex justify-between text-[10px] font-mono text-slate-500 pt-2 border-t border-[#1f293d]/50 mt-2">
-                            <span>Top (-) Start</span>
-                            <span>Bottom (+) End</span>
-                        </div>
-                    </div>
-
-                    <div class="md:col-span-7 space-y-4">
-                        <div class="grid grid-cols-3 gap-3 text-xs font-mono">
-                            <div class="bg-[#090d15] border border-[#1f293d] rounded p-3">
-                                <span class="text-slate-500 text-[10px]">TOTAL FRAGMENT SIZE</span>
-                                <div id="gel-stat-size" class="text-base font-semibold text-sky-400 mt-0.5">-- bp</div>
-                                <span class="text-[10px] text-slate-500">Secret + 36 bp tags</span>
-                            </div>
-                            <div class="bg-[#090d15] border border-[#1f293d] rounded p-3">
-                                <span class="text-slate-500 text-[10px]">START TAG TEMP</span>
-                                <div id="gel-stat-fwd-tm" class="text-base font-semibold text-slate-200 mt-0.5">48.0 &deg;C</div>
-                                <span class="text-[10px] text-slate-500">18 letters (50% GC)</span>
-                            </div>
-                            <div class="bg-[#090d15] border border-[#1f293d] rounded p-3">
-                                <span class="text-slate-500 text-[10px]">END TAG TEMP</span>
-                                <div id="gel-stat-rev-tm" class="text-base font-semibold text-slate-200 mt-0.5">48.0 &deg;C</div>
-                                <span class="text-[10px] text-slate-500">18 letters (50% GC)</span>
-                            </div>
-                        </div>
-
-                        <div class="bg-[#090d15] border border-[#1f293d] rounded p-3 space-y-2 text-xs font-mono">
-                            <span class="text-slate-400 font-semibold block pb-1 border-b border-[#1f293d]">SPECIAL DNA TAGS (USED TO LOCATE YOUR SECRET):</span>
-                            <div class="flex justify-between py-1">
-                                <span class="text-slate-400">Start Tag (Forward Primer):</span>
-                                <span class="text-sky-400 font-semibold">5'- ATCGTTAGGCTACGATCG -3'</span>
-                            </div>
-                            <div class="flex justify-between py-1">
-                                <span class="text-slate-400">End Tag (Reverse Primer):</span>
-                                <span class="text-purple-400 font-semibold">5'- CGATCGTAGCCTAACGAT -3'</span>
-                            </div>
-                            <div class="flex justify-between py-1 border-t border-[#1f293d] text-[11px] text-slate-500">
-                                <span>Lab Heating Temperature (Ta):</span>
-                                <span class="text-emerald-400">43.0 &deg;C (Perfect for reading)</span>
-                            </div>
-                        </div>
-
-                        <div class="bg-[#090d15] border border-[#1f293d] rounded p-3 space-y-2">
-                            <label class="block text-xs font-mono text-slate-300">Test Any DNA Sequence on the Virtual Gel:</label>
-                            <textarea id="gel-input-seq" rows="3" class="w-full bg-[#0d121c] border border-[#1f293d] rounded p-2 text-xs text-slate-200 mono lab-scroll" placeholder="Paste any DNA sequence containing the start and end tags..."></textarea>
-                            <button onclick="runGelSimulationFromInput()" class="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-mono text-xs rounded transition shadow">
-                                Run Gel Test
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- ======================= PROTOCOL 04: BIOPHYSICAL AUDIT ======================= -->
+        <!-- ======================= PROTOCOL 03: BIOPHYSICAL AUDIT ======================= -->
         <section id="panel-protocol-audit" class="hidden space-y-5">
 
             <!-- Simple Explanation Banner -->
             <div class="bg-[#101726] border border-[#23334d] rounded-lg p-3.5 flex items-start space-x-3 text-xs">
                 <div class="text-sky-400 font-bold text-sm mt-0.5">&#9432;</div>
                 <div>
-                    <span class="font-semibold text-slate-200">How Step 4 Works in Plain Words:</span>
+                    <span class="font-semibold text-slate-200">How Step 3 Works in Plain Words:</span>
                     <p class="text-slate-400 mt-0.5 leading-relaxed">
                         To survive inside a living organism or long-term freezer storage, DNA must follow biological rules:
                         <strong>1. GC content between 40% and 60%</strong> (prevents DNA from melting or folding into knots). 
@@ -777,7 +605,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
             <div class="bg-[#131926] border border-[#1f293d] rounded p-4 space-y-4">
                 <div class="pb-2 border-b border-[#1f293d]">
-                    <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">4. DNA HEALTH &amp; SAFETY AUDIT</span>
+                    <span class="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">3. DNA HEALTH &amp; SAFETY AUDIT</span>
                     <p class="text-[11px] text-slate-500 font-mono mt-0.5">Automated quality check against biological rules</p>
                 </div>
 
@@ -800,16 +628,6 @@ INDEX_HTML = """<!DOCTYPE html>
                         <span class="absolute left-3 top-[38%] text-[9px] font-mono text-emerald-500">60%</span>
                         <span class="absolute left-3 top-[58%] text-[9px] font-mono text-emerald-500">40%</span>
                         <span class="absolute left-3 bottom-2 text-[9px] font-mono text-slate-600">0% GC</span>
-
-                        <svg id="svg-gc-sparkline" class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
-                            <path id="svg-gc-path" d="" fill="none" stroke="#38bdf8" stroke-width="1.5"></path>
-                        </svg>
-                    </div>
-                </div>
-
-                <div id="audit-output-metrics" class="hidden"></div>
-            </div>
-        </section>
 
                         <svg id="svg-gc-sparkline" class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
                             <path id="svg-gc-path" d="" fill="none" stroke="#38bdf8" stroke-width="1.5"></path>
@@ -869,7 +687,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function switchTab(protocolId) {
-            ['embed', 'extract', 'gel', 'audit'].forEach(p => {
+            ['embed', 'extract', 'audit'].forEach(p => {
                 document.getElementById('panel-protocol-' + p).classList.add('hidden');
                 const btn = document.getElementById('btn-tab-' + p);
                 btn.className = "px-4 py-2 rounded font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-2";
@@ -972,8 +790,6 @@ INDEX_HTML = """<!DOCTYPE html>
                 document.getElementById('svg-cassette-group').setAttribute('opacity', '1.0');
                 document.getElementById('svg-insert-txt').textContent = `${coords.payload_length} bp Insert`;
 
-                updateGelElectrophoresisBand(coords.payload_length + 36);
-
                 showLabToast("Genomic cassette successfully synthesized.", "success");
 
             } catch (err) {
@@ -982,44 +798,6 @@ INDEX_HTML = """<!DOCTYPE html>
                 btn.disabled = false;
                 btn.innerHTML = `<span>SYNTHESIZE CASSETTE</span><span>&rarr;</span>`;
             }
-        }
-
-        function updateGelElectrophoresisBand(ampliconLength) {
-            const minSize = 100, maxSize = 2000;
-            const clamped = Math.min(maxSize, Math.max(minSize, ampliconLength));
-            const logMin = Math.log(minSize);
-            const logMax = Math.log(maxSize);
-            const factor = (Math.log(clamped) - logMin) / (logMax - logMin);
-            const topPx = Math.round(260 - factor * 220);
-
-            const band = document.getElementById('gel-amplicon-band');
-            band.style.top = topPx + 'px';
-            document.getElementById('gel-stat-size').innerText = ampliconLength.toLocaleString() + " bp";
-        }
-
-        function runGelSimulationFromInput() {
-            const seq = document.getElementById('gel-input-seq').value.trim();
-            if (!seq) {
-                showLabToast("Please provide sequence for PCR gel hybridization.", "error");
-                return;
-            }
-            fetch('/api/simulate-pcr', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sequence: seq })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    updateGelElectrophoresisBand(data.amplicon_length);
-                    document.getElementById('gel-stat-fwd-tm').innerText = data.fwd_tm + " °C";
-                    document.getElementById('gel-stat-rev-tm').innerText = data.rev_tm + " °C";
-                    showLabToast(`Gel exposed: ${data.amplicon_length} bp amplicon band detected.`, "success");
-                } else {
-                    showLabToast(data.detail || "PCR failed.", "error");
-                }
-            })
-            .catch(err => showLabToast(err.message, "error"));
         }
 
         async function runExtractionExperiment() {
