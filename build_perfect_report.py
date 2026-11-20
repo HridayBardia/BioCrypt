@@ -4,6 +4,7 @@ Fully Monochromatic (Pure Black & White) on all Odd Content Pages
 Zero Author / Personal Names Anywhere
 100% Full-Frame, Non-Truncated High-Resolution Diagram Plates on Even Pages
 Every Single Odd Page Calibrated to Fill Completely Down to the Bottom Borderline (706-722 pt)
+Significantly Increased Text Size (9.0 pt Body, 10.5 pt H1, 9.2 pt H2, 8.2 pt Captions) for Maximum Readability
 Exactly 19 Pages Total (Alternating Odd Content / Even Figure Plate)
 """
 
@@ -18,6 +19,7 @@ from reportlab.platypus import (
 )
 from reportlab.pdfgen import canvas
 import pypdf
+from test_pools import P1_EXTRA, P3_EXTRA, P5_EXTRA, P7_EXTRA, P9_EXTRA, P11_EXTRA, P13_EXTRA, P15_EXTRA, P17_EXTRA, P19_EXTRA
 
 # -----------------------------------------------------------------------------
 # TWO-PASS CUSTOM CANVAS FOR MONOCHROME JOURNAL HEADERS & FOOTERS
@@ -49,23 +51,23 @@ class BWJournalCanvas(canvas.Canvas):
         # PAGE 1 HEADER: Pure Black & White Scientific Masthead
         # -------------------------------------------------------------
         if p == 1:
-            self.setFont("Helvetica-Bold", 10.0)
+            self.setFont("Helvetica-Bold", 10.5)
             self.setFillColor(colors.black)
             self.drawString(36, h - 25, "BIOCRYPT GENOMICS")
-            self.setFont("Helvetica", 7.8)
+            self.setFont("Helvetica", 8.0)
             self.setFillColor(colors.HexColor("#222222"))
-            self.drawString(162, h - 25, "|   Vol 14, Issue 2   |   Peer-Reviewed Research Monograph")
+            self.drawString(168, h - 25, "|   Vol 14, Issue 2   |   Peer-Reviewed Research Monograph")
 
             # Solid Black Pill: "RESEARCH ARTICLE"
-            pill_w = 110
-            pill_h = 13
+            pill_w = 112
+            pill_h = 13.5
             pill_x = w - 36 - pill_w
-            pill_y = h - 31
+            pill_y = h - 31.5
             self.setFillColor(colors.black)
             self.rect(pill_x, pill_y, pill_w, pill_h, fill=1, stroke=0)
-            self.setFont("Helvetica-Bold", 7.2)
+            self.setFont("Helvetica-Bold", 7.5)
             self.setFillColor(colors.white)
-            self.drawCentredString(pill_x + pill_w/2.0, pill_y + 3.5, "RESEARCH ARTICLE")
+            self.drawCentredString(pill_x + pill_w/2.0, pill_y + 3.8, "RESEARCH ARTICLE")
 
             # Solid black dividing line
             self.setStrokeColor(colors.black)
@@ -76,19 +78,19 @@ class BWJournalCanvas(canvas.Canvas):
             # -------------------------------------------------------------
             # RUNNING HEADERS (Subsequent Pages)
             # -------------------------------------------------------------
-            self.setFont("Helvetica-Bold", 7.8)
+            self.setFont("Helvetica-Bold", 8.0)
             self.setFillColor(colors.black)
             if is_even:
                 self.drawString(36, h - 22, f"Page {p}")
-                self.setFont("Helvetica-Oblique", 7.5)
+                self.setFont("Helvetica-Oblique", 7.8)
                 self.drawCentredString(w / 2.0, h - 22, "BioCrypt-DNA // Scientific Figure Exhibits & Laboratory Imaging")
-                self.setFont("Helvetica-Bold", 7.5)
+                self.setFont("Helvetica-Bold", 7.8)
                 self.drawRightString(w - 36, h - 22, "EXHIBIT PLATE")
             else:
                 self.drawString(36, h - 22, "BIOCRYPT GENOMICS // RESEARCH ARTICLE")
-                self.setFont("Helvetica-Oblique", 7.5)
+                self.setFont("Helvetica-Oblique", 7.8)
                 self.drawCentredString(w / 2.0, h - 22, "Fault-Tolerant Cryptographic DNA Steganography")
-                self.setFont("Helvetica-Bold", 7.5)
+                self.setFont("Helvetica-Bold", 7.8)
                 self.drawRightString(w - 36, h - 22, f"Page {p}")
 
             # Top borderline
@@ -99,7 +101,7 @@ class BWJournalCanvas(canvas.Canvas):
         # -------------------------------------------------------------
         # RUNNING FOOTERS (Every Page) - Pure Black & Gray
         # -------------------------------------------------------------
-        self.setFont("Helvetica", 7.0)
+        self.setFont("Helvetica", 7.2)
         self.setFillColor(colors.HexColor("#333333"))
         if is_even:
             self.drawString(36, 17, "BioCrypt Molecular Consortium • High-Resolution Scientific Laboratory Exhibits • Open Access Standard")
@@ -201,15 +203,18 @@ def build_final_bw_pdf():
 
     styles = getSampleStyleSheet()
 
-    # Monochromatic Typography Styles
+    # LARGE, HIGHLY READABLE MONOCHROMATIC TYPOGRAPHY
+    font_sz = 9.0
+    lead = 11.8
+
     title_style = ParagraphStyle(
         'BWTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=12.2,
-        leading=15.2,
+        fontSize=14.0,
+        leading=17.5,
         textColor=colors.black,
-        spaceAfter=3.2,
+        spaceAfter=3.5,
         alignment=0
     )
 
@@ -217,41 +222,41 @@ def build_final_bw_pdf():
         'BWMetaBanner',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=7.2,
-        leading=9.2,
+        fontSize=8.5,
+        leading=11.0,
         textColor=colors.black,
-        spaceAfter=1.6
+        spaceAfter=1.8
     )
 
     meta_sub_style = ParagraphStyle(
         'BWMetaSub',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=6.4,
-        leading=8.3,
+        fontSize=7.2,
+        leading=9.4,
         textColor=colors.HexColor('#222222'),
-        spaceAfter=2.0
+        spaceAfter=2.2
     )
 
     dates_style = ParagraphStyle(
         'BWDates',
         parent=styles['Normal'],
         fontName='Helvetica-Oblique',
-        fontSize=6.3,
-        leading=8.2,
+        fontSize=7.0,
+        leading=9.0,
         textColor=colors.HexColor('#444444'),
-        spaceAfter=3.2
+        spaceAfter=3.5
     )
 
     h1_style = ParagraphStyle(
         'BWH1',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=8.2,
-        leading=10.2,
+        fontSize=10.2,
+        leading=13.0,
         textColor=colors.black,
-        spaceBefore=3.6,
-        spaceAfter=1.6,
+        spaceBefore=4.2,
+        spaceAfter=2.0,
         keepWithNext=True
     )
 
@@ -259,11 +264,11 @@ def build_final_bw_pdf():
         'BWH2',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=7.3,
-        leading=9.2,
+        fontSize=9.0,
+        leading=11.5,
         textColor=colors.black,
-        spaceBefore=2.6,
-        spaceAfter=1.4,
+        spaceBefore=3.2,
+        spaceAfter=1.6,
         keepWithNext=True
     )
 
@@ -271,10 +276,10 @@ def build_final_bw_pdf():
         'BWBody',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=7.1,
-        leading=9.1,
+        fontSize=font_sz,
+        leading=lead,
         textColor=colors.black,
-        spaceAfter=2.4,
+        spaceAfter=3.0,
         alignment=4 # Fully Justified
     )
 
@@ -282,10 +287,10 @@ def build_final_bw_pdf():
         'BWAbstract',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=6.9,
-        leading=8.9,
+        fontSize=8.0,
+        leading=10.4,
         textColor=colors.black,
-        spaceAfter=1.8,
+        spaceAfter=2.0,
         alignment=4
     )
 
@@ -293,8 +298,8 @@ def build_final_bw_pdf():
         'BWPlateCaption',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=7.3,
-        leading=9.5,
+        fontSize=8.2,
+        leading=10.6,
         textColor=colors.black,
         alignment=4
     )
@@ -303,26 +308,26 @@ def build_final_bw_pdf():
         'BWEq',
         parent=styles['Normal'],
         fontName='Helvetica-Oblique',
-        fontSize=7.1,
-        leading=9.0,
+        fontSize=8.2,
+        leading=10.5,
         textColor=colors.black,
         alignment=1, # Centered
-        spaceBefore=1.6,
-        spaceAfter=1.8
+        spaceBefore=2.0,
+        spaceAfter=2.2
     )
 
-    tbl_head = ParagraphStyle('BWTblHead', fontName='Helvetica-Bold', fontSize=6.5, leading=8.2, textColor=colors.white)
-    tbl_body = ParagraphStyle('BWTblBody', fontName='Helvetica', fontSize=6.3, leading=8.0, textColor=colors.black)
-    tbl_bold = ParagraphStyle('BWTblBold', fontName='Helvetica-Bold', fontSize=6.3, leading=8.0, textColor=colors.black)
+    tbl_head = ParagraphStyle('BWTblHead', fontName='Helvetica-Bold', fontSize=7.2, leading=9.0, textColor=colors.white)
+    tbl_body = ParagraphStyle('BWTblBody', fontName='Helvetica', fontSize=6.8, leading=8.6, textColor=colors.black)
+    tbl_bold = ParagraphStyle('BWTblBold', fontName='Helvetica-Bold', fontSize=6.8, leading=8.6, textColor=colors.black)
 
     ref_style = ParagraphStyle(
         'BWRef',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=6.1,
-        leading=7.7,
+        fontSize=7.2,
+        leading=9.2,
         textColor=colors.black,
-        spaceAfter=1.4
+        spaceAfter=1.8
     )
 
     def make_full_diagram_plate(fig_path, fig_title, fig_caption, img_w, img_h):
@@ -391,8 +396,6 @@ def build_final_bw_pdf():
         body_style
     ))
     p1.append(Paragraph("1.2 Architectural Objectives and Engineering Innovations", h2_style))
-
-    from test_pools import P1_EXTRA, P3_EXTRA, P5_EXTRA, P7_EXTRA, P9_EXTRA, P11_EXTRA, P13_EXTRA, P15_EXTRA, P17_EXTRA, P19_EXTRA
 
     p1_packed, p1_h = pack_odd_page_to_borderline(p1, P1_EXTRA, body_style)
     print(f"Page 01 packed: height = {p1_h:.1f} pt (Target: 706-722 pt)")
